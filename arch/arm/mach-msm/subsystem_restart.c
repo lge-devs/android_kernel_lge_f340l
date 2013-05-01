@@ -174,7 +174,8 @@ struct subsys_device {
 };
 
 #ifdef CONFIG_MACH_LGE
-static int modem_reboot_cnt;
+static int modem_reboot_cnt = 0;
+module_param(modem_reboot_cnt, int, S_IRUGO | S_IWUSR);
 #endif
 
 static struct subsys_device *to_subsys(struct device *d)
@@ -658,7 +659,8 @@ void subsystem_put(void *subsystem)
 			subsys_stop(subsys);
 			if (subsys->do_ramdump_on_put)
 				subsystem_ramdump(subsys, NULL);
-		} else {
+		}
+		else {
 			pr_info("[LGE DEBUG]subsys: block modem put stop for stabilty\n");
 			subsys->count++;
 		}
