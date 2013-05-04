@@ -89,9 +89,11 @@ static void __iomem *virt_bases_v = NULL;
 static int mmss_cc_n_default;
 static int mmss_cc_d_max;
 static int mmss_cc_d_half;
-#if defined(CONFIG_MACH_MSM8974_VU3_KR)||defined(CONFIG_MACH_MSM8974_Z_KR)||defined(CONFIG_MACH_MSM8974_Z_SPR)||defined(CONFIG_MACH_MSM8974_Z_TMO_US)||defined(CONFIG_MACH_MSM8974_Z_ATT_US)||defined(CONFIG_MACH_MSM8974_Z_KDDI)||defined(CONFIG_MACH_MSM8974_Z_OPEN_COM)
-int previous_nForce=0;
-#endif
+
+#define PRE_FORCE_DEF	128
+static int previous_nForce = PRE_FORCE_DEF;
+
+/*IMMVIBESPIAPI*/ VibeStatus ImmVibeSPI_ForceOut_AmpDisable(VibeUInt8 nActuatorIndex);
 
 struct timed_vibrator_data {
 	atomic_t gp1_clk_flag;
@@ -438,42 +440,41 @@ static int vibrator_ic_enable_set(int enable, struct timed_vibrator_data *vib_da
 /*
 ** Called to disable amp (disable output force)
 */
-IMMVIBESPIAPI VibeStatus ImmVibeSPI_ForceOut_AmpDisable(VibeUInt8 nActuatorIndex)
+/*IMMVIBESPIAPI*/ VibeStatus ImmVibeSPI_ForceOut_AmpDisable(VibeUInt8 nActuatorIndex)
 {
-
+	printk("%s : g_bAmpEnabled:%d\n", __func__, g_bAmpEnabled);
     if (g_bAmpEnabled)
     {
+		if(sm100_flag) {
+	        sm100_ic_enable_set(0, &vib);
+	        sm100_pwm_set(0, 0);
+	        sm100_power_set(0, &vib);
 
-        DbgOut((KERN_DEBUG "ImmVibeSPI_ForceOut_AmpDisable.\n"));
-
-        vibrator_ic_enable_set(0, &vib);
-        vibrator_pwm_set(0, 0, GP_CLK_N_DEFAULT);
-
-	if (atomic_read(&vib.gp1_clk_flag) == 1) {
-		clk_disable_unprepare(cam_gp1_clk);
-		atomic_set(&vib.gp1_clk_flag, 0);
-	}
-
-        vibrator_power_set(0, &vib);
-
-        g_bAmpEnabled = false;
-#if defined(CONFIG_MACH_MSM8974_VU3_KR)||defined(CONFIG_MACH_MSM8974_Z_KR)||defined(CONFIG_MACH_MSM8974_Z_SPR)||defined(CONFIG_MACH_MSM8974_Z_TMO_US)||defined(CONFIG_MACH_MSM8974_Z_ATT_US)||defined(CONFIG_MACH_MSM8974_Z_KDDI)||defined(CONFIG_MACH_MSM8974_Z_OPEN_COM)
-		previous_nForce=0xFFFF;
+			if (atomic_read(&vib.gp1_clk_flag) == 1) {
+				atomic_set(&vib.gp1_clk_flag, 0);
+				clk_disable_unprepare(cam_gp1_clk);
+			}
+		} else {
+#ifdef CONFIG_TSPDRV_PMIC_VIBRATOR
+			if(vib_dev != NULL)
+				qpnp_vib_set_with_vtglevel(vib_dev, 0, false);
 #endif
+		}
 
+		g_bAmpEnabled = false;
+		previous_nForce = 0;
     }
 
     return VIBE_S_SUCCESS;
 }
+EXPORT_SYMBOL(ImmVibeSPI_ForceOut_AmpDisable);
 
 /*
 ** Called to enable amp (enable output force)
 */
-IMMVIBESPIAPI VibeStatus ImmVibeSPI_ForceOut_AmpEnable(VibeUInt8 nActuatorIndex)
+/*IMMVIBESPIAPI*/ VibeStatus ImmVibeSPI_ForceOut_AmpEnable(VibeUInt8 nActuatorIndex, VibeInt8 nForce)
 {
-    if (is_zw_mode())
-	return VIBE_S_SUCCESS;
-
+	printk("%s : g_bAmpEnabled:%d\n", __func__, g_bAmpEnabled);
     if (!g_bAmpEnabled)
     {
         DbgOut((KERN_DEBUG "ImmVibeSPI_ForceOut_AmpEnable.\n"));
@@ -491,6 +492,7 @@ IMMVIBESPIAPI VibeStatus ImmVibeSPI_ForceOut_AmpEnable(VibeUInt8 nActuatorIndex)
 
     return VIBE_S_SUCCESS;
 }
+EXPORT_SYMBOL(ImmVibeSPI_ForceOut_AmpEnable);
 
 /*
 ** Called at initialization time to set PWM freq, disable amp, etc...
@@ -646,6 +648,14 @@ IMMVIBESPIAPI VibeStatus ImmVibeSPI_ForceOut_SetFrequency(VibeUInt8 nActuatorInd
     return VIBE_S_SUCCESS;
 }
 #endif
+
+/* For tuning of the timed interface strength */
+#define DEFAULT_TIMED_STRENGTH 65
+VibeInt8 timedForce = DEFAULT_TIMED_STRENGTH;
+
+VibeStatus ImmVibeSPI_SetTimedSample(void) {
+    return ImmVibeSPI_ForceOut_SetSamples(0, 8, 1, &timedForce);
+}
 
 /*
 ** Called to get the device name (device name must be returned as ANSI char)

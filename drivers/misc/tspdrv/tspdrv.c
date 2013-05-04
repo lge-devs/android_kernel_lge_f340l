@@ -50,10 +50,13 @@
 #include <tspdrvRecorder.c>
 #endif
 
+#include"imm_timed_output.h"
+
+#include "touch_fops.c"
 /* Device name and version information */
-#define VERSION_STR " v3.4.55.9\n"                  /* DO NOT CHANGE - this is auto-generated */
+#define VERSION_STR " v3.7.11.0\n"                  /* DO NOT CHANGE - this is auto-generated */
 #define VERSION_STR_LEN 16                          /* account extra space for future extra digits in version number */
-static char g_szDeviceName[  (VIBE_MAX_DEVICE_NAME_LENGTH 
+static char g_szDeviceName[  (VIBE_MAX_DEVICE_NAME_LENGTH
                             + VERSION_STR_LEN)
                             * NUM_ACTUATORS];       /* initialized in init_module */
 static size_t g_cchDeviceName;                      /* initialized in init_module */
@@ -157,6 +160,35 @@ static struct platform_device platdev =
 MODULE_AUTHOR("Immersion Corporation");
 MODULE_DESCRIPTION("TouchSense Kernel Module");
 MODULE_LICENSE("GPL v2");
+
+extern VibeInt8 timedForce;
+
+static ssize_t nforce_val_show(struct device *dev, struct device_attribute *attr,
+               char *buf)
+{
+       return sprintf(buf, "%hu", timedForce);
+}
+
+static ssize_t nforce_val_store(struct device *dev, struct device_attribute *attr,
+               const char *buf, size_t size)
+{
+       unsigned short int strength_val = DEFAULT_TIMED_STRENGTH;
+       if (kstrtoul(buf, 0, (unsigned long int*)&strength_val))
+               pr_err("[VIB] %s: error on storing nforce\n", __func__);
+
+
+       /* make sure new pwm duty is in range */
+       if (strength_val > 127)
+               strength_val = 127;
+       else if (strength_val < 1)
+               strength_val = 1;
+
+       timedForce = strength_val;
+
+       return size;
+}
+
+static DEVICE_ATTR(nforce_timed, S_IRUGO | S_IWUSR, nforce_val_show, nforce_val_store);
 
 #if 1
 /* LGE_CHANGED_START
@@ -274,6 +306,9 @@ int __init tspdrv_init(void)
         g_SamplesBuffer[i].actuatorSamples[1].nBufferSize = 0;
     }
 
+
+    device_create_file(&platdev.dev, &dev_attr_nforce_timed);
+    ImmVibe_timed_output();
     return 0;
 }
 
