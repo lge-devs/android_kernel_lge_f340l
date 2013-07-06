@@ -1530,13 +1530,7 @@ static int mmc_blk_err_check(struct mmc_card *card,
 		u32 status;
 		unsigned long timeout;
 
-		#ifdef CONFIG_MACH_LGE
-		/* LGE_CHANGE, 2013/12/02, G2-KK-FS@lge.com
-		 * Apply for more information in case of IOWAIT-cpu-long-occupation
-		 */
-		unsigned long timeout_5s;
-		unsigned long time_in_stuck = 0;
-		#endif
+		timeout = jiffies + msecs_to_jiffies(MMC_BLK_TIMEOUT_MS);
 
 		/* Check stop command response */
 		if (brq->stop.resp[0] & R1_ERROR) {
@@ -1545,15 +1539,6 @@ static int mmc_blk_err_check(struct mmc_card *card,
 			       brq->stop.resp[0]);
 			gen_err = 1;
 		}
-
-		timeout = jiffies + msecs_to_jiffies(MMC_BLK_TIMEOUT_MS);
-
-		#ifdef CONFIG_MACH_LGE
-		/* LGE_CHANGE, 2013/12/02, G2-KK-FS@lge.com
-		 * Apply for more information in case of IOWAIT-cpu-long-occupation
-		 */
-		timeout_5s = jiffies + msecs_to_jiffies(5000);
-		#endif
 
 		do {
 			int err = get_card_status(card, &status, 5);
@@ -1604,7 +1589,7 @@ static int mmc_blk_err_check(struct mmc_card *card,
 
 	/* if general error occurs, retry the write operation. */
 	if (gen_err) {
-		pr_warn("%s: retrying write for general error\n",
+		pr_warning("%s: retrying write for general error\n",
 				req->rq_disk->disk_name);
 		return MMC_BLK_RETRY;
 	}
