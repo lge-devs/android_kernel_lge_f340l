@@ -252,8 +252,9 @@ int ping_init_sock(struct sock *sk)
 	struct net *net = sock_net(sk);
 	gid_t group = current_egid();
 	gid_t range[2];
-	struct group_info *group_info = get_current_groups();
-	int i, j, count = group_info->ngroups;
+	struct group_info *group_info;
+	int i, j, count;
+	int ret = 0;
 
 	if (sk->sk_family == AF_INET6)
 		inet6_sk(sk)->ipv6only = 1;
