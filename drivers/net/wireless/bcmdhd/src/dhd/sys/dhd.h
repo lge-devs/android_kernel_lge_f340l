@@ -519,8 +519,18 @@ inline static void MUTEX_UNLOCK_SOFTAP_SET(dhd_pub_t * dhdp)
 	dhd_os_wake_lock_ctrl_timeout_enable(pub, val)
 #define DHD_OS_WAKE_LOCK_CTRL_TIMEOUT_CANCEL(pub) \
 	dhd_os_wake_lock_ctrl_timeout_cancel(pub)
+#define DHD_OS_WAKE_LOCK_WAIVE(pub)             dhd_os_wake_lock_waive(pub)
+#define DHD_OS_WAKE_LOCK_RESTORE(pub)           dhd_os_wake_lock_restore(pub)
 #endif /* DHD_DEBUG_WAKE_LOCK */
-#define DHD_PACKET_TIMEOUT_MS	500
+
+#define DHD_OS_WD_WAKE_LOCK(pub)		dhd_os_wd_wake_lock(pub)
+#define DHD_OS_WD_WAKE_UNLOCK(pub)		dhd_os_wd_wake_unlock(pub)
+#ifdef BCMPCIE_OOB_HOST_WAKE
+#define OOB_WAKE_LOCK_TIMEOUT 500
+#define DHD_OS_OOB_IRQ_WAKE_LOCK_TIMEOUT(pub, val) dhd_os_oob_irq_wake_lock_timeout(pub, val)
+#define DHD_OS_OOB_IRQ_WAKE_UNLOCK(pub)		dhd_os_oob_irq_wake_unlock(pub)
+#endif /* BCMPCIE_OOB_HOST_WAKE */
+#define DHD_PACKET_TIMEOUT_MS	250
 #define DHD_EVENT_TIMEOUT_MS	1500
 
 
