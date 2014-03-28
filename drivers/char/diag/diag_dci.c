@@ -204,74 +204,166 @@ static int diag_dci_remove_req_entry(unsigned char *buf, int len,
 	return 0;
 }
 
-void extract_dci_pkt_rsp(struct diag_smd_info *smd_info, unsigned char *buf)
+void extract_dci_pkt_rsp(unsigned char *buf, int len, int data_source,
+			 struct diag_smd_info *smd_info)
 {
-	int i = 0, cmd_code_len = 1;
-	int curr_client_pid = 0, write_len, *tag = NULL;
-	struct diag_dci_client_tbl *entry;
+	int tag, curr_client_pid = 0;
+	struct diag_dci_client_tbl *entry = NULL;
 	void *temp_buf = NULL;
-	uint8_t recv_pkt_cmd_code, delete_flag = 0;
+	uint8_t dci_cmd_code, cmd_code_len, delete_flag = 0;
+	uint32_t rsp_len = 0;
+	struct diag_dci_buffer_t *rsp_buf = NULL;
 	struct dci_pkt_req_entry_t *req_entry = NULL;
-	recv_pkt_cmd_code = *(uint8_t *)(buf+4);
-	if (recv_pkt_cmd_code != DCI_PKT_RSP_CODE)
-		cmd_code_len = 4; /* delayed response */
-	write_len = (int)(*(uint16_t *)(buf+2)) - cmd_code_len;
+	unsigned char *temp = buf;
+	int save_req_uid = 0;
+	struct diag_dci_pkt_rsp_header_t pkt_rsp_header;
 
-	pr_debug("diag: len = %d\n", write_len);
-	tag = (int *)(buf + (4 + cmd_code_len)); /* Retrieve the Tag field */
-	req_entry = diag_dci_get_request_entry(*tag);
-	if (!req_entry) {
-		pr_alert("diag: No matching PID for DCI data\n");
+	if (!buf) {
+		pr_err("diag: Invalid pointer in %s\n", __func__);
 		return;
 	}
-	*tag = req_entry->uid;
+	dci_cmd_code = *(uint8_t *)(temp);
+	if (dci_cmd_code == DCI_PKT_RSP_CODE) {
+		cmd_code_len = sizeof(uint8_t);
+	} else if (dci_cmd_code == DCI_DELAYED_RSP_CODE) {
+		cmd_code_len = sizeof(uint32_t);
+	} else {
+		pr_err("diag: In %s, invalid command code %d\n", __func__,
+								dci_cmd_code);
+		return;
+	}
+	temp += cmd_code_len;
+	tag = *(int *)temp;
+	temp += sizeof(int);
+
+	/*
+	 * The size of the response is (total length) - (length of the command
+	 * code, the tag (int)
+	 */
+	rsp_len = len - (cmd_code_len + sizeof(int));
+	/*
+	 * Check if the length embedded in the packet is correct.
+	 * Include the start (1), version (1), length (2) and the end
+	 * (1) bytes while checking. Total = 5 bytes
+	 */
+	if ((rsp_len == 0) || (rsp_len > (len - 5))) {
+		pr_err("diag: Invalid length in %s, len: %d, rsp_len: %d",
+						__func__, len, rsp_len);
+		return;
+	}
+
+	req_entry = diag_dci_get_request_entry(tag);
+	if (!req_entry) {
+		pr_err("diag: No matching PID for DCI data\n");
+		return;
+	}
 	curr_client_pid = req_entry->pid;
+	save_req_uid = req_entry->uid;
 
 	/* Remove the headers and send only the response to this function */
-	delete_flag = diag_dci_remove_req_entry(buf + 8 + cmd_code_len,
-						write_len - 4,
-						req_entry);
-	if (delete_flag < 0)
+	mutex_lock(&driver->dci_mutex);
+	delete_flag = diag_dci_remove_req_entry(temp, rsp_len, req_entry);
+	if (delete_flag < 0) {
+		mutex_unlock(&driver->dci_mutex);
 		return;
-
-	/* Using PID of client process, find client buffer */
-	i = diag_dci_find_client_index(curr_client_pid);
-	if (i != DCI_CLIENT_INDEX_INVALID) {
-		/* copy pkt rsp in client buf */
-		entry = &(driver->dci_client_tbl[i]);
-		mutex_lock(&entry->data_mutex);
-		/*
-		 * Check if we can fit the data in the rsp buffer. The total
-		 * length of the rsp is the rsp length (write_len) +
-		 * DCI_PKT_RSP_TYPE header (int) + field for length (int) +
-		 * delete_flag (uint8_t)
-		 */
-		if (DCI_CHK_CAPACITY(entry, 9+write_len)) {
-			pr_alert("diag: create capacity for pkt rsp\n");
-			entry->total_capacity += 9+write_len;
-			temp_buf = krealloc(entry->dci_data,
-			entry->total_capacity, GFP_KERNEL);
-			if (!temp_buf) {
-				pr_err("diag: DCI realloc failed\n");
-				mutex_unlock(&entry->data_mutex);
-				return;
-			} else {
-				entry->dci_data = temp_buf;
-			}
-		}
-		*(int *)(entry->dci_data+entry->data_len) =
-					DCI_PKT_RSP_TYPE;
-		entry->data_len += 4;
-		*(int *)(entry->dci_data+entry->data_len)
-						= write_len;
-		entry->data_len += 4;
-		*(uint8_t *)(entry->dci_data + entry->data_len) = delete_flag;
-		entry->data_len += sizeof(uint8_t);
-		memcpy(entry->dci_data+entry->data_len,
-			buf+4+cmd_code_len, write_len);
-		entry->data_len += write_len;
-		mutex_unlock(&entry->data_mutex);
 	}
+	mutex_unlock(&driver->dci_mutex);
+
+	entry = __diag_dci_get_client_entry(curr_client_pid);
+	if (!entry) {
+		pr_err("diag: In %s, couldn't find entry\n", __func__);
+		return;
+	}
+
+	rsp_buf = entry->buffers[data_source].buf_cmd;
+
+	mutex_lock(&rsp_buf->data_mutex);
+	/*
+	 * Check if we can fit the data in the rsp buffer. The total length of
+	 * the rsp is the rsp length (write_len) + DCI_PKT_RSP_TYPE header (int)
+	 * + field for length (int) + delete_flag (uint8_t)
+	 */
+	if ((rsp_buf->data_len + 9 + rsp_len) > rsp_buf->capacity) {
+		pr_alert("diag: create capacity for pkt rsp\n");
+		rsp_buf->capacity += 9 + rsp_len;
+		temp_buf = krealloc(rsp_buf->data, rsp_buf->capacity,
+				    GFP_KERNEL);
+		if (!temp_buf) {
+			pr_err("diag: DCI realloc failed\n");
+			mutex_unlock(&rsp_buf->data_mutex);
+			return;
+		} else {
+			rsp_buf->data = temp_buf;
+		}
+	}
+
+	/* Fill in packet response header information */
+	pkt_rsp_header.type = DCI_PKT_RSP_TYPE;
+	/* Packet Length = Response Length + Length of uid field (int) */
+	pkt_rsp_header.length = rsp_len + sizeof(int);
+	pkt_rsp_header.delete_flag = delete_flag;
+	pkt_rsp_header.uid = save_req_uid;
+	memcpy(rsp_buf->data, &pkt_rsp_header,
+		sizeof(struct diag_dci_pkt_rsp_header_t));
+	rsp_buf->data_len += sizeof(struct diag_dci_pkt_rsp_header_t);
+	memcpy(rsp_buf->data + rsp_buf->data_len, temp, rsp_len);
+	rsp_buf->data_len += rsp_len;
+	rsp_buf->data_source = data_source;
+	if (smd_info)
+		smd_info->in_busy_1 = 1;
+	mutex_unlock(&rsp_buf->data_mutex);
+
+
+	/*
+	 * Add directly to the list for writing responses to the
+	 * userspace as these shouldn't be buffered and shouldn't wait
+	 * for log and event buffers to be full
+	 */
+	dci_add_buffer_to_list(entry, rsp_buf);
+}
+
+static void copy_dci_event(unsigned char *buf, int len,
+			   struct diag_dci_client_tbl *client, int data_source)
+{
+	struct diag_dci_buffer_t *data_buffer = NULL;
+	struct diag_dci_buf_peripheral_t *proc_buf = NULL;
+	int err = 0, total_len = 0;
+
+	if (!buf || !client) {
+		pr_err("diag: Invalid pointers in %s", __func__);
+		return;
+	}
+
+	total_len = sizeof(int) + len;
+
+	proc_buf = &client->buffers[data_source];
+	mutex_lock(&proc_buf->buf_mutex);
+	mutex_lock(&proc_buf->health_mutex);
+	err = diag_dci_get_buffer(client, data_source, total_len);
+	if (err) {
+		if (err == -ENOMEM)
+			proc_buf->health.dropped_events++;
+		else
+			pr_err("diag: In %s, invalid packet\n", __func__);
+		mutex_unlock(&proc_buf->health_mutex);
+		mutex_unlock(&proc_buf->buf_mutex);
+		return;
+	}
+
+	data_buffer = proc_buf->buf_curr;
+
+	proc_buf->health.received_events++;
+	mutex_unlock(&proc_buf->health_mutex);
+	mutex_unlock(&proc_buf->buf_mutex);
+
+	mutex_lock(&data_buffer->data_mutex);
+	*(int *)(data_buffer->data + data_buffer->data_len) = DCI_EVENT_TYPE;
+	data_buffer->data_len += sizeof(int);
+	memcpy(data_buffer->data + data_buffer->data_len, buf, len);
+	data_buffer->data_len += len;
+	data_buffer->data_source = data_source;
+	mutex_unlock(&data_buffer->data_mutex);
+
 }
 
 void extract_dci_events(unsigned char *buf)
