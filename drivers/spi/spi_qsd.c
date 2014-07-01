@@ -1386,6 +1386,70 @@ error:
 	return ret;
 }
 
+static int msm_spi_bam_map_buffers(struct msm_spi *dd)
+{
+	int ret = -EINVAL;
+	struct device *dev;
+	struct spi_transfer *first_xfr;
+	struct spi_transfer *nxt_xfr;
+	void *tx_buf, *rx_buf;
+	u32 tx_len, rx_len;
+	int num_xfrs_grped = dd->num_xfrs_grped;
+
+	dev = dd->dev;
+	first_xfr = dd->cur_transfer;
+
+	do {
+		tx_buf = (void *)first_xfr->tx_buf;
+		rx_buf = first_xfr->rx_buf;
+		tx_len = rx_len = first_xfr->len;
+		if (tx_buf != NULL) {
+			first_xfr->tx_dma = dma_map_single(dev, tx_buf,
+							tx_len, DMA_TO_DEVICE);
+			if (dma_mapping_error(dev, first_xfr->tx_dma)) {
+				ret = -ENOMEM;
+				goto error;
+			}
+		}
+
+		if (rx_buf != NULL) {
+			first_xfr->rx_dma = dma_map_single(dev, rx_buf,	rx_len,
+							DMA_FROM_DEVICE);
+			if (dma_mapping_error(dev, first_xfr->rx_dma)) {
+				if (tx_buf != NULL)
+					dma_unmap_single(dev,
+							first_xfr->tx_dma,
+							tx_len, DMA_TO_DEVICE);
+				ret = -ENOMEM;
+				goto error;
+			}
+		}
+
+		nxt_xfr = list_entry(first_xfr->transfer_list.next,
+				struct spi_transfer, transfer_list);
+
+		if (nxt_xfr == NULL)
+			break;
+		num_xfrs_grped--;
+		first_xfr = nxt_xfr;
+	} while (num_xfrs_grped > 0);
+
+	return 0;
+error:
+	msm_spi_dma_unmap_buffers(dd);
+	return ret;
+}
+
+static int msm_spi_dma_map_buffers(struct msm_spi *dd)
+{
+	int ret = 0;
+	if (dd->mode == SPI_DMOV_MODE)
+		ret = msm_spi_dmov_map_buffers(dd);
+	else if (dd->mode == SPI_BAM_MODE)
+		ret = msm_spi_bam_map_buffers(dd);
+	return ret;
+}
+
 static void msm_spi_dmov_unmap_buffers(struct msm_spi *dd)
 {
 	struct device *dev;
@@ -1639,6 +1703,7 @@ static void msm_spi_process_transfer(struct msm_spi *dd)
 	u32 timeout;
 	u32 spi_ioc;
 	u32 int_loopback = 0;
+	int ret;
 
 	dd->tx_bytes_remaining = dd->cur_msg_len;
 	dd->rx_bytes_remaining = dd->cur_msg_len;
@@ -1690,11 +1755,19 @@ static void msm_spi_process_transfer(struct msm_spi *dd)
 
 	msm_spi_set_transfer_mode(dd, bpw, read_count);
 	msm_spi_set_mx_counts(dd, read_count);
-	if ((dd->mode == SPI_BAM_MODE) || (dd->mode == SPI_DMOV_MODE))
-		if (msm_spi_dma_map_buffers(dd) < 0) {
+	if (dd->mode == SPI_DMOV_MODE) {
+		ret = msm_spi_dma_map_buffers(dd);
+		if (ret < 0) {
 			pr_err("Mapping DMA buffers\n");
+			dd->cur_msg->status = ret;
 			return;
 		}
+	} else if (dd->mode == SPI_BAM_MODE) {
+			if (msm_spi_dma_map_buffers(dd) < 0) {
+				pr_err("Mapping DMA buffers\n");
+				return;
+		}
+	}
 	msm_spi_set_qup_io_modes(dd);
 	msm_spi_set_spi_config(dd, bpw);
 	msm_spi_set_qup_config(dd, bpw);
@@ -2045,10 +2118,74 @@ static int msm_spi_transfer(struct spi_device *spi, struct spi_message *msg)
 		}
 	}
 
+	mutex_lock(&dd->core_lock);
+
+	/*
+	 * Counter-part of system-suspend when runtime-pm is not enabled.
+	 * This way, resume can be left empty and device will be put in
+	 * active mode only if client requests anything on the bus
+	 */
+	if (!pm_runtime_enabled(dd->dev))
+		msm_spi_pm_resume_runtime(dd->dev);
+
+	if (dd->use_rlock)
+		remote_mutex_lock(&dd->r_lock);
+
 	spin_lock_irqsave(&dd->queue_lock, flags);
-	list_add_tail(&msg->queue, &dd->queue);
+	dd->transfer_pending = 1;
 	spin_unlock_irqrestore(&dd->queue_lock, flags);
-	queue_work(dd->workqueue, &dd->work_data);
+
+	if (dd->suspended || !msm_spi_is_valid_state(dd)) {
+		dev_err(dd->dev, "%s: SPI operational state not valid\n",
+			__func__);
+		status_error = 1;
+	}
+	spin_lock_irqsave(&dd->queue_lock, flags);
+	dd->transfer_pending = 1;
+	dd->cur_msg = msg;
+	spin_unlock_irqrestore(&dd->queue_lock, flags);
+
+	if (status_error)
+		dd->cur_msg->status = -EIO;
+	else
+		msm_spi_process_message(dd);
+
+	spin_lock_irqsave(&dd->queue_lock, flags);
+	dd->transfer_pending = 0;
+	spin_unlock_irqrestore(&dd->queue_lock, flags);
+
+	if (dd->use_rlock)
+		remote_mutex_unlock(&dd->r_lock);
+
+	mutex_unlock(&dd->core_lock);
+
+	/*
+	 * If needed, this can be done after the current message is complete,
+	 * and work can be continued upon resume. No motivation for now.
+	 */
+	if (dd->suspended)
+		wake_up_interruptible(&dd->continue_suspend);
+
+out:
+	dd->cur_msg->status = status_error;
+	spi_finalize_current_message(master);
+	return status_error;
+}
+
+static int msm_spi_prepare_transfer_hardware(struct spi_master *master)
+{
+	struct msm_spi	*dd = spi_master_get_devdata(master);
+
+	pm_runtime_get_sync(dd->dev);
+	return 0;
+}
+
+static int msm_spi_unprepare_transfer_hardware(struct spi_master *master)
+{
+	struct msm_spi	*dd = spi_master_get_devdata(master);
+
+	pm_runtime_mark_last_busy(dd->dev);
+	pm_runtime_put_autosuspend(dd->dev);
 	return 0;
 }
 
