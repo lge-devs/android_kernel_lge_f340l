@@ -887,11 +887,15 @@ static void __ref check_temp(struct work_struct *work)
 	long temp = 0;
 	int ret = 0;
 
-	tsens_dev.sensor_num = msm_thermal_info.sensor_id;
-	ret = tsens_get_temp(&tsens_dev, &temp);
+	if (!msm_thermal_probed)
+		return;
+
+	do_therm_reset();
+
+	ret = therm_get_temp(msm_thermal_info.sensor_id, THERM_TSENS_ID, &temp);
 	if (ret) {
-		pr_debug("%s: Unable to read TSENS sensor %d\n",
-				KBUILD_MODNAME, tsens_dev.sensor_num);
+		pr_err("Unable to read TSENS sensor:%d. err:%d\n",
+				msm_thermal_info.sensor_id, ret);
 		goto reschedule;
 	}
 
