@@ -24,14 +24,12 @@
 
 #define MAX_SESSIONS 2
 
-#if defined(CONFIG_G2_LGD_PANEL) || defined(CONFIG_B1_LGD_PANEL) || defined(CONFIG_VU3_LGD_PANEL)
-extern int is_fboot;
-#endif
+/* wait for 300ms to take into account scheduling related delays
+ * This number is empirical*/
+#define KOFF_TIMEOUT msecs_to_jiffies(300)
 
-/* wait for at most 2 vsync for lowest refresh rate (24hz) */
-#define KOFF_TIMEOUT msecs_to_jiffies(84)
-
-#define STOP_TIMEOUT msecs_to_jiffies(16 * (VSYNC_EXPIRE_TICK + 2))
+#define STOP_TIMEOUT(hz) msecs_to_jiffies((1000 / hz) * (VSYNC_EXPIRE_TICK + 2))
+#define ULPS_ENTER_TIME msecs_to_jiffies(100)
 
 struct mdss_mdp_cmd_ctx {
 	struct mdss_mdp_ctl *ctl;
