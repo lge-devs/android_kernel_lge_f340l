@@ -147,25 +147,27 @@ static DEVICE_ATTR(panel_maker_id, 0444, panel_maker_id_show, NULL);
 */
 #endif
 
-#if defined(CONFIG_LGE_SUPORT_OLED_TUNING)
-#include "mdss_mdp.h"
-#define	IMG_TUNE_COUNT	6
-static int img_tune_mode = 1;	/* Default value : cm0(standard) + plc 60% */
-struct img_tune_cmds_desc {
-	struct dsi_panel_cmds img_tune_cmds[IMG_TUNE_COUNT];
-};
-static char *img_tune_dt[] = {
-	"qcom,img-tune-cmds-cm0",
-	"qcom,img-tune-cmds-ce-cm0-plc60",
-	"qcom,img-tune-cmds-cm1",
-	"qcom,img-tune-cmds-ce-cm1-plc60",
-	"qcom,img-tune-cmds-cm2",
-	"qcom,img-tune-cmds-ce-cm2-plc60",
-};
-static struct img_tune_cmds_desc *img_tune_cmds_set;
+#ifdef CONFIG_LGE_LCD_TUNING
+extern int num_cmds;
+extern struct dsi_cmd_desc *tun_dsi_panel_on_cmds;
+static int num_of_on_cmds;
+#endif
 
-static int bl_tune_mode = 1;	/* Default value : use the blmap */
-static int blackout_mode = 0;
+#define MIN_REFRESH_RATE 30
+
+DEFINE_LED_TRIGGER(bl_led_trigger);
+#if defined(CONFIG_MACH_LGE_BACKLIGHT_SUPPORT)
+#include <linux/backlight.h>
+static struct backlight_device *bl_dev;
+#endif
+
+#if defined(CONFIG_LGE_MIPI_DZNY_JDI_INCELL_FHD_VIDEO_PANEL)
+//#include <linux/input/lge_touch_notify.h>
+#endif
+
+#if defined(CONFIG_LGE_MIPI_DZNY_JDI_INCELL_FHD_VIDEO_PANEL)
+extern int sm5107_mode_change(int mode);
+extern int dw8768_mode_change(int mode);
 #endif
 void mdss_dsi_panel_pwm_cfg(struct mdss_dsi_ctrl_pdata *ctrl)
 {
@@ -1169,6 +1171,85 @@ static int mdss_dsi_parse_panel_features(struct device_node *np,
 	return 0;
 }
 
+static int mdss_dsi_set_refresh_rate_range(struct device_node *pan_node,
+		struct mdss_panel_info *pinfo)
+{
+	int rc = 0;
+	rc = of_property_read_u32(pan_node,
+			"qcom,mdss-dsi-min-refresh-rate",
+			&pinfo->min_fps);
+	if (rc) {
+		pr_warn("%s:%d, Unable to read min refresh rate\n",
+				__func__, __LINE__);
+
+		/*
+		 * Since min refresh rate is not specified when dynamic
+		 * fps is enabled, using minimum as 30
+		 */
+		pinfo->min_fps = MIN_REFRESH_RATE;
+		rc = 0;
+	}
+
+	rc = of_property_read_u32(pan_node,
+			"qcom,mdss-dsi-max-refresh-rate",
+			&pinfo->max_fps);
+	if (rc) {
+		pr_warn("%s:%d, Unable to read max refresh rate\n",
+				__func__, __LINE__);
+
+		/*
+		 * Since max refresh rate was not specified when dynamic
+		 * fps is enabled, using the default panel refresh rate
+		 * as max refresh rate supported.
+		 */
+		pinfo->max_fps = pinfo->mipi.frame_rate;
+		rc = 0;
+	}
+
+	pr_info("dyn_fps: min = %d, max = %d\n",
+			pinfo->min_fps, pinfo->max_fps);
+	return rc;
+}
+
+static void mdss_dsi_parse_dfps_config(struct device_node *pan_node,
+			struct mdss_dsi_ctrl_pdata *ctrl_pdata)
+{
+	const char *data;
+	bool dynamic_fps;
+	struct mdss_panel_info *pinfo = &(ctrl_pdata->panel_data.panel_info);
+
+	dynamic_fps = of_property_read_bool(pan_node,
+			"qcom,mdss-dsi-pan-enable-dynamic-fps");
+
+	if (!dynamic_fps)
+		return;
+
+	pinfo->dynamic_fps = true;
+	data = of_get_property(pan_node, "qcom,mdss-dsi-pan-fps-update", NULL);
+	if (data) {
+		if (!strcmp(data, "dfps_suspend_resume_mode")) {
+			pinfo->dfps_update = DFPS_SUSPEND_RESUME_MODE;
+			pr_debug("dfps mode: suspend/resume\n");
+		} else if (!strcmp(data, "dfps_immediate_clk_mode")) {
+			pinfo->dfps_update = DFPS_IMMEDIATE_CLK_UPDATE_MODE;
+			pr_debug("dfps mode: Immediate clk\n");
+		} else if (!strcmp(data, "dfps_immediate_porch_mode")) {
+			pinfo->dfps_update = DFPS_IMMEDIATE_PORCH_UPDATE_MODE;
+			pr_debug("dfps mode: Immediate porch\n");
+		} else {
+			pinfo->dfps_update = DFPS_SUSPEND_RESUME_MODE;
+			pr_debug("default dfps mode: suspend/resume\n");
+		}
+		mdss_dsi_set_refresh_rate_range(pan_node, pinfo);
+	} else {
+		pinfo->dynamic_fps = false;
+		pr_debug("dfps update mode not configured: disable\n");
+	}
+	pinfo->new_fps = pinfo->mipi.frame_rate;
+
+	return;
+}
+
 static int mdss_panel_parse_dt(struct device_node *np,
 			struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
@@ -1481,6 +1562,8 @@ static int mdss_panel_parse_dt(struct device_node *np,
 	if (pdata_base == NULL)
 		pdata_base = &(ctrl_pdata->panel_data);	// for the API mdss_dsi_panel_img_tune_apply (the first lcd on time from lk)
 #endif
+
+	mdss_dsi_parse_dfps_config(np, ctrl_pdata);
 
 	return 0;
 
