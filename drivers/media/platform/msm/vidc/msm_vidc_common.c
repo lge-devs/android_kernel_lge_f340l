@@ -3329,34 +3329,48 @@ int msm_comm_recover_from_session_error(struct msm_vidc_inst *inst)
 	if (!inst || !inst->core || !inst->core->device) {
 		dprintk(VIDC_ERR, "%s: invalid input parameters", __func__);
 		return -EINVAL;
+	} else if (!inst->session) {
+		/* There's no hfi session to kill */
+		return 0;
 	}
-	if (!inst->session || inst->state < MSM_VIDC_OPEN_DONE) {
-		dprintk(VIDC_WARN,
-			"No corresponding FW session. No need to send Abort");
-		return rc;
-	}
-	hdev = inst->core->device;
 
-	init_completion(&inst->completions[SESSION_MSG_INDEX
-		(SESSION_ABORT_DONE)]);
-
-	/* We have received session_error. Send session_abort to firmware
-	 *  to clean up and release the session
+	/*
+	 * We're internally forcibly killing the session, if fw is aware of
+	 * the session send session_abort to firmware to clean up and release
+	 * the session, else just kill the session inside the driver.
 	 */
-	rc = call_hfi_op(hdev, session_abort, (void *) inst->session);
-	if (rc) {
-		dprintk(VIDC_ERR, "session_abort failed rc: %d\n", rc);
-		return rc;
+	if ((inst->state >= MSM_VIDC_OPEN_DONE &&
+			inst->state < MSM_VIDC_CLOSE_DONE) ||
+			inst->state == MSM_VIDC_CORE_INVALID) {
+		struct hfi_device *hdev = inst->core->device;
+		int abort_completion = SESSION_MSG_INDEX(SESSION_ABORT_DONE);
+
+		rc = call_hfi_op(hdev, session_abort, (void *) inst->session);
+		if (rc) {
+			dprintk(VIDC_ERR, "session_abort failed rc: %d\n", rc);
+			return rc;
+		}
+
+		init_completion(&inst->completions[abort_completion]);
+		rc = wait_for_completion_timeout(
+				&inst->completions[abort_completion],
+				msecs_to_jiffies(msm_vidc_hw_rsp_timeout));
+		if (!rc) {
+			dprintk(VIDC_ERR,
+					"%s: Wait interrupted or timed out [%p]: %d\n",
+					__func__, inst, abort_completion);
+			msm_comm_generate_sys_error(inst);
+		} else {
+			change_inst_state(inst, MSM_VIDC_CLOSE_DONE);
+		}
+	} else {
+		dprintk(VIDC_WARN,
+				"Inactive session %p, triggering an internal session error\n",
+				inst);
+		msm_comm_generate_session_error(inst);
+
 	}
-	rc = wait_for_completion_timeout(
-		&inst->completions[SESSION_MSG_INDEX(SESSION_ABORT_DONE)],
-		msecs_to_jiffies(msm_vidc_hw_rsp_timeout));
-	if (!rc) {
-		dprintk(VIDC_ERR, "%s: Wait interrupted or timeout: %d\n",
-			__func__, rc);
-		msm_comm_generate_sys_error(inst);
-	} else
-		change_inst_state(inst, MSM_VIDC_CLOSE_DONE);
+
 	return rc;
 }
 
