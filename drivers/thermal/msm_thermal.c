@@ -33,8 +33,18 @@
 #include <mach/rpm-regulator.h>
 #include <mach/rpm-regulator-smd.h>
 #include <linux/regulator/consumer.h>
+#include <linux/msm_thermal_ioctl.h>
+#include <mach/rpm-smd.h>
+#include <mach/scm.h>
+#include <linux/sched.h>
 
+#define MAX_CURRENT_UA 1000000
 #define MAX_RAILS 5
+#define MAX_THRESHOLD 2
+#define MONITOR_ALL_TSENS -1
+#define BYTES_PER_FUSE_ROW  8
+#define MAX_EFUSE_VALUE  16
+#define THERM_SECURE_BITE_CMD 8
 
 static struct msm_thermal_data msm_thermal_info;
 static uint32_t limited_max_freq = MSM_CPUFREQ_NO_LIMIT;
@@ -894,6 +904,492 @@ static void thermal_rtc_callback(struct alarm *al)
 	schedule_work(&timer_work);
 	pr_debug("%s: Time on alarm expiry: %ld %ld\n", KBUILD_MODNAME,
 			ts.tv_sec, ts.tv_usec);
+}
+
+static int hotplug_notify(enum thermal_trip_type type, int temp, void *data)
+{
+	struct cpu_info *cpu_node = (struct cpu_info *)data;
+
+	pr_info("%s reach temp threshold: %d\n", cpu_node->sensor_type, temp);
+
+	if (!(msm_thermal_info.core_control_mask & BIT(cpu_node->cpu)))
+		return 0;
+	switch (type) {
+	case THERMAL_TRIP_CONFIGURABLE_HI:
+		if (!(cpu_node->offline))
+			cpu_node->offline = 1;
+		break;
+	case THERMAL_TRIP_CONFIGURABLE_LOW:
+		if (cpu_node->offline)
+			cpu_node->offline = 0;
+		break;
+	default:
+		break;
+	}
+	if (hotplug_task) {
+		cpu_node->hotplug_thresh_clear = true;
+		complete(&hotplug_notify_complete);
+	} else {
+		pr_err("Hotplug task is not initialized\n");
+	}
+	return 0;
+}
+/* Adjust cpus offlined bit based on temperature reading. */
+static int hotplug_init_cpu_offlined(void)
+{
+	long temp = 0;
+	uint32_t cpu = 0;
+
+	if (!hotplug_enabled)
+		return 0;
+
+	mutex_lock(&core_control_mutex);
+	for_each_possible_cpu(cpu) {
+		if (!(msm_thermal_info.core_control_mask & BIT(cpus[cpu].cpu)))
+			continue;
+		if (therm_get_temp(cpus[cpu].sensor_id, cpus[cpu].id_type,
+					&temp)) {
+			pr_err("Unable to read TSENS sensor:%d.\n",
+				cpus[cpu].sensor_id);
+			mutex_unlock(&core_control_mutex);
+			return -EINVAL;
+		}
+
+		if (temp >= msm_thermal_info.hotplug_temp_degC)
+			cpus[cpu].offline = 1;
+		else if (temp <= (msm_thermal_info.hotplug_temp_degC -
+			msm_thermal_info.hotplug_temp_hysteresis_degC))
+			cpus[cpu].offline = 0;
+	}
+	mutex_unlock(&core_control_mutex);
+
+	if (hotplug_task)
+		complete(&hotplug_notify_complete);
+	else {
+		pr_err("Hotplug task is not initialized\n");
+		return -EINVAL;
+	}
+	return 0;
+}
+
+static void hotplug_init(void)
+{
+	uint32_t cpu = 0;
+	struct sensor_threshold *hi_thresh = NULL, *low_thresh = NULL;
+
+	if (hotplug_task)
+		return;
+
+	if (!hotplug_enabled)
+		goto init_kthread;
+
+	for_each_possible_cpu(cpu) {
+		cpus[cpu].sensor_id =
+			sensor_get_id((char *)cpus[cpu].sensor_type);
+		cpus[cpu].id_type = THERM_ZONE_ID;
+		if (!(msm_thermal_info.core_control_mask & BIT(cpus[cpu].cpu)))
+			continue;
+
+		hi_thresh = &cpus[cpu].threshold[HOTPLUG_THRESHOLD_HIGH];
+		low_thresh = &cpus[cpu].threshold[HOTPLUG_THRESHOLD_LOW];
+		hi_thresh->temp = msm_thermal_info.hotplug_temp_degC;
+		hi_thresh->trip = THERMAL_TRIP_CONFIGURABLE_HI;
+		low_thresh->temp = msm_thermal_info.hotplug_temp_degC -
+				msm_thermal_info.hotplug_temp_hysteresis_degC;
+		low_thresh->trip = THERMAL_TRIP_CONFIGURABLE_LOW;
+		hi_thresh->notify = low_thresh->notify = hotplug_notify;
+		hi_thresh->data = low_thresh->data = (void *)&cpus[cpu];
+
+		set_threshold(cpus[cpu].sensor_id, hi_thresh);
+	}
+init_kthread:
+	init_completion(&hotplug_notify_complete);
+	hotplug_task = kthread_run(do_hotplug, NULL, "msm_thermal:hotplug");
+	if (IS_ERR(hotplug_task)) {
+		pr_err("Failed to create do_hotplug thread. err:%ld\n",
+				PTR_ERR(hotplug_task));
+		return;
+	}
+	/*
+	 * Adjust cpus offlined bit when hotplug intitializes so that the new
+	 * cpus offlined state is based on hotplug threshold range
+	 */
+	if (hotplug_init_cpu_offlined())
+		kthread_stop(hotplug_task);
+}
+
+static __ref int do_freq_mitigation(void *data)
+{
+	int ret = 0;
+	uint32_t cpu = 0, max_freq_req = 0, min_freq_req = 0;
+	struct sched_param param = {.sched_priority = MAX_RT_PRIO-1};
+
+	sched_setscheduler(current, SCHED_FIFO, &param);
+	while (!kthread_should_stop()) {
+		while (wait_for_completion_interruptible(
+			&freq_mitigation_complete) != 0)
+			;
+		INIT_COMPLETION(freq_mitigation_complete);
+
+		for_each_possible_cpu(cpu) {
+			max_freq_req = (cpus[cpu].max_freq) ?
+					msm_thermal_info.freq_limit :
+					UINT_MAX;
+			max_freq_req = min(max_freq_req,
+					cpus[cpu].user_max_freq);
+
+			min_freq_req = max(min_freq_limit,
+					cpus[cpu].user_min_freq);
+
+			if ((max_freq_req == cpus[cpu].limited_max_freq)
+				&& (min_freq_req ==
+				cpus[cpu].limited_min_freq))
+				goto reset_threshold;
+
+			cpus[cpu].limited_max_freq = max_freq_req;
+			cpus[cpu].limited_min_freq = min_freq_req;
+			update_cpu_freq(cpu);
+reset_threshold:
+			if (freq_mitigation_enabled &&
+				cpus[cpu].freq_thresh_clear) {
+				set_threshold(cpus[cpu].sensor_id,
+				&cpus[cpu].threshold[FREQ_THRESHOLD_HIGH]);
+
+				cpus[cpu].freq_thresh_clear = false;
+			}
+		}
+	}
+	return ret;
+}
+
+static int freq_mitigation_notify(enum thermal_trip_type type,
+	int temp, void *data)
+{
+	struct cpu_info *cpu_node = (struct cpu_info *) data;
+
+	pr_debug("%s reached temp threshold: %d\n",
+		cpu_node->sensor_type, temp);
+
+	if (!(msm_thermal_info.freq_mitig_control_mask &
+		BIT(cpu_node->cpu)))
+		return 0;
+
+	switch (type) {
+	case THERMAL_TRIP_CONFIGURABLE_HI:
+		if (!cpu_node->max_freq) {
+			pr_info("Mitigating CPU%d frequency to %d\n",
+				cpu_node->cpu,
+				msm_thermal_info.freq_limit);
+
+			cpu_node->max_freq = true;
+		}
+		break;
+	case THERMAL_TRIP_CONFIGURABLE_LOW:
+		if (cpu_node->max_freq) {
+			pr_info("Removing frequency mitigation for CPU%d\n",
+				cpu_node->cpu);
+
+			cpu_node->max_freq = false;
+		}
+		break;
+	default:
+		break;
+	}
+
+	if (freq_mitigation_task) {
+		cpu_node->freq_thresh_clear = true;
+		complete(&freq_mitigation_complete);
+	} else {
+		pr_err("Frequency mitigation task is not initialized\n");
+	}
+
+	return 0;
+}
+
+static void freq_mitigation_init(void)
+{
+	uint32_t cpu = 0;
+	struct sensor_threshold *hi_thresh = NULL, *low_thresh = NULL;
+
+	if (freq_mitigation_task)
+		return;
+	if (!freq_mitigation_enabled)
+		goto init_freq_thread;
+
+	for_each_possible_cpu(cpu) {
+		if (!(msm_thermal_info.freq_mitig_control_mask & BIT(cpu)))
+			continue;
+		hi_thresh = &cpus[cpu].threshold[FREQ_THRESHOLD_HIGH];
+		low_thresh = &cpus[cpu].threshold[FREQ_THRESHOLD_LOW];
+
+		hi_thresh->temp = msm_thermal_info.freq_mitig_temp_degc;
+		hi_thresh->trip = THERMAL_TRIP_CONFIGURABLE_HI;
+		low_thresh->temp = msm_thermal_info.freq_mitig_temp_degc -
+			msm_thermal_info.freq_mitig_temp_hysteresis_degc;
+		low_thresh->trip = THERMAL_TRIP_CONFIGURABLE_LOW;
+		hi_thresh->notify = low_thresh->notify =
+			freq_mitigation_notify;
+		hi_thresh->data = low_thresh->data = (void *)&cpus[cpu];
+
+		set_threshold(cpus[cpu].sensor_id, hi_thresh);
+	}
+init_freq_thread:
+	init_completion(&freq_mitigation_complete);
+	freq_mitigation_task = kthread_run(do_freq_mitigation, NULL,
+		"msm_thermal:freq_mitig");
+
+	if (IS_ERR(freq_mitigation_task)) {
+		pr_err("Failed to create frequency mitigation thread. err:%ld\n",
+				PTR_ERR(freq_mitigation_task));
+		return;
+	}
+}
+
+int msm_thermal_set_frequency(uint32_t cpu, uint32_t freq, bool is_max)
+{
+	int ret = 0;
+
+	if (cpu >= num_possible_cpus()) {
+		pr_err("Invalid input\n");
+		ret = -EINVAL;
+		goto set_freq_exit;
+	}
+
+	pr_debug("Userspace requested %s frequency %u for CPU%u\n",
+			(is_max) ? "Max" : "Min", freq, cpu);
+	if (is_max) {
+		if (cpus[cpu].user_max_freq == freq)
+			goto set_freq_exit;
+
+		cpus[cpu].user_max_freq = freq;
+	} else {
+		if (cpus[cpu].user_min_freq == freq)
+			goto set_freq_exit;
+
+		cpus[cpu].user_min_freq = freq;
+	}
+
+	if (freq_mitigation_task) {
+		complete(&freq_mitigation_complete);
+	} else {
+		pr_err("Frequency mitigation task is not initialized\n");
+		ret = -ESRCH;
+		goto set_freq_exit;
+	}
+
+set_freq_exit:
+	return ret;
+}
+
+int therm_set_threshold(struct threshold_info *thresh_inp)
+{
+	int ret = 0, i = 0, err = 0;
+	struct therm_threshold *thresh_ptr;
+
+	if (!thresh_inp) {
+		pr_err("Invalid input\n");
+		ret = -EINVAL;
+		goto therm_set_exit;
+	}
+
+	thresh_inp->thresh_triggered = false;
+	for (i = 0; i < thresh_inp->thresh_ct; i++) {
+		thresh_ptr = &thresh_inp->thresh_list[i];
+		thresh_ptr->trip_triggered = -1;
+		err = set_threshold(thresh_ptr->sensor_id,
+			thresh_ptr->threshold);
+		if (err) {
+			ret = err;
+			err = 0;
+		}
+	}
+
+therm_set_exit:
+	return ret;
+}
+
+static void vdd_restriction_notify(struct therm_threshold *trig_thresh)
+{
+	int ret = 0;
+	static uint32_t vdd_sens_status;
+
+	if (!vdd_rstr_enabled)
+		return;
+	if (!trig_thresh) {
+		pr_err("Invalid input\n");
+		return;
+	}
+	if (trig_thresh->trip_triggered < 0)
+		goto set_and_exit;
+
+	mutex_lock(&vdd_rstr_mutex);
+	pr_debug("sensor:%d reached %s thresh for Vdd restriction\n",
+		tsens_id_map[trig_thresh->sensor_id],
+		(trig_thresh->trip_triggered == THERMAL_TRIP_CONFIGURABLE_HI) ?
+		"high" : "low");
+	switch (trig_thresh->trip_triggered) {
+	case THERMAL_TRIP_CONFIGURABLE_HI:
+		if (vdd_sens_status & BIT(trig_thresh->sensor_id))
+			vdd_sens_status ^= BIT(trig_thresh->sensor_id);
+		break;
+	case THERMAL_TRIP_CONFIGURABLE_LOW:
+		vdd_sens_status |= BIT(trig_thresh->sensor_id);
+		break;
+	default:
+		pr_err("Unsupported trip type\n");
+		goto unlock_and_exit;
+		break;
+	}
+
+	ret = vdd_restriction_apply_all((vdd_sens_status) ? 1 : 0);
+	if (ret) {
+		pr_err("%s vdd rstr votlage for all failed\n",
+			(vdd_sens_status) ?
+			"Enable" : "Disable");
+			goto unlock_and_exit;
+	}
+
+unlock_and_exit:
+	mutex_unlock(&vdd_rstr_mutex);
+set_and_exit:
+	set_threshold(trig_thresh->sensor_id, trig_thresh->threshold);
+	return;
+}
+
+static __ref int do_thermal_monitor(void *data)
+{
+	int ret = 0, i, j;
+	struct therm_threshold *sensor_list;
+
+	while (!kthread_should_stop()) {
+		while (wait_for_completion_interruptible(
+			&thermal_monitor_complete) != 0)
+			;
+		INIT_COMPLETION(thermal_monitor_complete);
+
+		for (i = 0; i < MSM_LIST_MAX_NR; i++) {
+			if (!thresh[i].thresh_triggered)
+				continue;
+			thresh[i].thresh_triggered = false;
+			for (j = 0; j < thresh[i].thresh_ct; j++) {
+				sensor_list = &thresh[i].thresh_list[j];
+				if (sensor_list->trip_triggered < 0)
+					continue;
+				sensor_list->notify(sensor_list);
+				sensor_list->trip_triggered = -1;
+			}
+		}
+	}
+	return ret;
+}
+
+static void thermal_monitor_init(void)
+{
+	if (thermal_monitor_task)
+		return;
+
+	init_completion(&thermal_monitor_complete);
+	thermal_monitor_task = kthread_run(do_thermal_monitor, NULL,
+		"msm_thermal:therm_monitor");
+	if (IS_ERR(thermal_monitor_task)) {
+		pr_err("Failed to create thermal monitor thread. err:%ld\n",
+				PTR_ERR(thermal_monitor_task));
+		goto init_exit;
+	}
+
+	if (therm_reset_enabled)
+		therm_set_threshold(&thresh[MSM_THERM_RESET]);
+
+	if (vdd_rstr_enabled)
+		therm_set_threshold(&thresh[MSM_VDD_RESTRICTION]);
+
+init_exit:
+	return;
+}
+
+static int msm_thermal_notify(enum thermal_trip_type type, int temp, void *data)
+{
+	struct therm_threshold *thresh_data = (struct therm_threshold *)data;
+
+	if (thermal_monitor_task) {
+		thresh_data->trip_triggered = type;
+		thresh_data->parent->thresh_triggered = true;
+		complete(&thermal_monitor_complete);
+	} else {
+		pr_err("Thermal monitor task is not initialized\n");
+	}
+	return 0;
+}
+
+static int init_threshold(enum msm_thresh_list index,
+	int sensor_id, int32_t hi_temp, int32_t low_temp,
+	void (*callback)(struct therm_threshold *))
+{
+	int ret = 0, i;
+	struct therm_threshold *thresh_ptr;
+
+	if (!callback || index >= MSM_LIST_MAX_NR || index < 0
+		|| sensor_id == -ENODEV) {
+		pr_err("Invalid input. sensor:%d. index:%d\n",
+				sensor_id, index);
+		ret = -EINVAL;
+		goto init_thresh_exit;
+	}
+	if (thresh[index].thresh_list) {
+		pr_err("threshold id:%d already initialized\n", index);
+		ret = -EEXIST;
+		goto init_thresh_exit;
+	}
+
+	thresh[index].thresh_ct = (sensor_id == MONITOR_ALL_TSENS) ?
+						max_tsens_num : 1;
+	thresh[index].thresh_triggered = false;
+	thresh[index].thresh_list = kzalloc(sizeof(struct therm_threshold) *
+					thresh[index].thresh_ct, GFP_KERNEL);
+	if (!thresh[index].thresh_list) {
+		pr_err("kzalloc failed for thresh index:%d\n", index);
+		ret = -ENOMEM;
+		goto init_thresh_exit;
+	}
+
+	thresh_ptr = thresh[index].thresh_list;
+	if (sensor_id == MONITOR_ALL_TSENS) {
+		for (i = 0; i < max_tsens_num; i++) {
+			thresh_ptr[i].sensor_id = tsens_id_map[i];
+			thresh_ptr[i].notify = callback;
+			thresh_ptr[i].trip_triggered = -1;
+			thresh_ptr[i].parent = &thresh[index];
+			thresh_ptr[i].threshold[0].temp = hi_temp;
+			thresh_ptr[i].threshold[0].trip =
+				THERMAL_TRIP_CONFIGURABLE_HI;
+			thresh_ptr[i].threshold[1].temp = low_temp;
+			thresh_ptr[i].threshold[1].trip =
+				THERMAL_TRIP_CONFIGURABLE_LOW;
+			thresh_ptr[i].threshold[0].notify =
+			thresh_ptr[i].threshold[1].notify = msm_thermal_notify;
+			thresh_ptr[i].threshold[0].data =
+			thresh_ptr[i].threshold[1].data =
+				(void *)&thresh_ptr[i];
+		}
+	} else {
+		thresh_ptr->sensor_id = sensor_id;
+		thresh_ptr->notify = callback;
+		thresh_ptr->trip_triggered = -1;
+		thresh_ptr->parent = &thresh[index];
+		thresh_ptr->threshold[0].temp = hi_temp;
+		thresh_ptr->threshold[0].trip =
+			THERMAL_TRIP_CONFIGURABLE_HI;
+		thresh_ptr->threshold[1].temp = low_temp;
+		thresh_ptr->threshold[1].trip =
+			THERMAL_TRIP_CONFIGURABLE_LOW;
+		thresh_ptr->threshold[0].notify =
+		thresh_ptr->threshold[1].notify = msm_thermal_notify;
+		thresh_ptr->threshold[0].data =
+		thresh_ptr->threshold[1].data = (void *)thresh_ptr;
+	}
+
+init_thresh_exit:
+	return ret;
 }
 
 /*
