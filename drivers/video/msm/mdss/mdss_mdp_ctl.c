@@ -433,16 +433,195 @@ static int mdss_mdp_ctl_perf_update(struct mdss_mdp_ctl *ctl)
 	}
 
 	/* request minimum bandwidth to have bus clock on when display is on */
-	if (total_ib_quota == 0)
-		total_ib_quota = SZ_16M >> MDSS_MDP_BUS_FACTOR_SHIFT;
+	if (perf->bw_overlap == 0)
+		perf->bw_overlap = SZ_16M;
 
-	if (max_clk_rate != ctl->clk_rate) {
-		if (max_clk_rate > ctl->clk_rate)
-			ret = MDSS_MDP_PERF_UPDATE_EARLY;
+	if (ctl->intf_type != MDSS_MDP_NO_INTF) {
+		u32 vbp_fac = mdss_mdp_get_vbp_factor_max(ctl);
+
+		perf->bw_prefill = perf->prefill_bytes;
+		/*
+		 * Prefill bandwidth equals the amount of data (number
+		 * of prefill_bytes) divided by the the amount time
+		 * available (blanking period). It is equivalent that
+		 * prefill bytes times a factor in unit Hz, which is
+		 * the reciprocal of time.
+		 */
+		perf->bw_prefill *= vbp_fac;
+	}
+
+	perf->bw_ctl = max(perf->bw_prefill, perf->bw_overlap);
+}
+
+int mdss_mdp_perf_bw_check(struct mdss_mdp_ctl *ctl,
+		struct mdss_mdp_pipe **left_plist, int left_cnt,
+		struct mdss_mdp_pipe **right_plist, int right_cnt)
+{
+	struct mdss_data_type *mdata = ctl->mdata;
+	struct mdss_mdp_perf_params perf;
+	u32 bw, threshold, i;
+	u64 bw_sum_of_intfs = 0;
+
+	/* we only need bandwidth check on real-time clients (interfaces) */
+	if (ctl->intf_type == MDSS_MDP_NO_INTF)
+		return 0;
+
+	__mdss_mdp_perf_calc_ctl_helper(ctl, &perf,
+			left_plist, left_cnt, right_plist, right_cnt);
+	ctl->bw_pending = perf.bw_ctl;
+
+	for (i = 0; i < mdata->nctl; i++) {
+		struct mdss_mdp_ctl *temp = mdata->ctl_off + i;
+		if (temp->power_on && (temp->intf_type != MDSS_MDP_NO_INTF))
+			bw_sum_of_intfs += temp->bw_pending;
+	}
+
+	/* convert bandwidth to kb */
+	bw = DIV_ROUND_UP_ULL(bw_sum_of_intfs, 1000);
+	pr_debug("calculated bandwidth=%uk\n", bw);
+
+	threshold = (ctl->is_video_mode ||
+		mdss_mdp_video_mode_intf_connected(ctl)) ?
+		mdata->max_bw_low : mdata->max_bw_high;
+	if (bw > threshold) {
+		ctl->bw_pending = 0;
+		pr_debug("exceeds bandwidth: %ukb > %ukb\n", bw, threshold);
+		return -E2BIG;
+	}
+
+	return 0;
+}
+
+static void mdss_mdp_perf_calc_ctl(struct mdss_mdp_ctl *ctl,
+		struct mdss_mdp_perf_params *perf)
+{
+	struct mdss_mdp_pipe **left_plist, **right_plist;
+
+	left_plist = ctl->mixer_left ? ctl->mixer_left->stage_pipe : NULL;
+	right_plist = ctl->mixer_right ? ctl->mixer_right->stage_pipe : NULL;
+
+	__mdss_mdp_perf_calc_ctl_helper(ctl, perf,
+			left_plist, (left_plist ? MDSS_MDP_MAX_STAGE : 0),
+			right_plist, (right_plist ? MDSS_MDP_MAX_STAGE : 0));
+
+#ifdef BW_CHECK_AGAIN_FOR_UNDERRUN
+	if (ctl->is_video_mode) {
+		if (perf->bw_overlap > perf->bw_prefill)
+			perf->bw_ctl = apply_fudge_factor(perf->bw_ctl,
+				&mdss_res->ib_factor_overlap);
 		else
-			ret = MDSS_MDP_PERF_UPDATE_LATE;
-		ctl->clk_rate = max_clk_rate;
-		ctl->perf_changed |= MDSS_MDP_PERF_UPDATE_CLK;
+			perf->bw_ctl = apply_fudge_factor(perf->bw_ctl,
+				&mdss_res->ib_factor);
+
+		if (DIV_ROUND_UP_ULL(perf->bw_ctl, 1000) > 3200000) {
+			perf->bw_ctl = max(apply_fudge_factor(perf->bw_overlap,	&mdss_res->ib_factor_overlap),
+					apply_fudge_factor(perf->bw_prefill, &mdss_res->ib_factor));
+		}
+#else
+	if (ctl->is_video_mode || ((ctl->intf_type != MDSS_MDP_NO_INTF) &&
+		mdss_mdp_video_mode_intf_connected(ctl))) {
+		perf->bw_ctl =
+			max(apply_fudge_factor(perf->bw_overlap,
+				&mdss_res->ib_factor_overlap),
+			apply_fudge_factor(perf->bw_prefill,
+				&mdss_res->ib_factor));
+#endif
+	}
+	pr_debug("ctl=%d clk_rate=%u\n", ctl->num, perf->mdp_clk_rate);
+	pr_debug("bw_overlap=%llu bw_prefill=%llu prefill_bytes=%d\n",
+		 perf->bw_overlap, perf->bw_prefill, perf->prefill_bytes);
+}
+
+static void set_status(u32 *value, bool status, u32 bit_num)
+{
+	if (status)
+		*value |= BIT(bit_num);
+	else
+		*value &= ~BIT(bit_num);
+}
+
+/**
+ * @ mdss_mdp_ctl_perf_set_transaction_status() -
+ *                             Set the status of the on-going operations
+ *                             for the command mode panels.
+ * @ctl - pointer to a ctl
+ *
+ * This function is called to set the status bit in the perf_transaction_status
+ * according to the operation that it is on-going for the command mode
+ * panels, where:
+ *
+ * PERF_SW_COMMIT_STATE:
+ *           1 - If SW operation has been commited and bw
+ *               has been requested (HW transaction have not started yet).
+ *           0 - If there is no SW operation pending
+ * PERF_HW_MDP_STATE:
+ *           1 - If HW transaction is on-going
+ *           0 - If there is no HW transaction on going (ping-pong interrupt
+ *               has finished)
+ * Only if both states are zero there are no pending operations and
+ * BW could be released.
+ * State can be queried calling "mdss_mdp_ctl_perf_get_transaction_status"
+ */
+void mdss_mdp_ctl_perf_set_transaction_status(struct mdss_mdp_ctl *ctl,
+	enum mdss_mdp_perf_state_type component, bool new_status)
+{
+	u32  previous_transaction;
+	bool previous_status;
+	unsigned long flags;
+
+	if (!ctl || !ctl->panel_data ||
+		(ctl->panel_data->panel_info.type != MIPI_CMD_PANEL))
+		return;
+
+	spin_lock_irqsave(&ctl->spin_lock, flags);
+
+	previous_transaction = ctl->perf_transaction_status;
+	previous_status = previous_transaction & BIT(component) ?
+		PERF_STATUS_BUSY : PERF_STATUS_DONE;
+
+	/*
+	 * If we set "done" state when previous state was not "busy",
+	 * we want to print a warning since maybe there is a state
+	 * that we are not considering
+	 */
+	WARN((PERF_STATUS_DONE == new_status) &&
+		(PERF_STATUS_BUSY != previous_status),
+		"unexpected previous state for component: %d\n", component);
+
+	set_status(&ctl->perf_transaction_status, new_status,
+		(u32)component);
+
+	pr_debug("component:%d previous_transaction:%d transaction_status:%d\n",
+		component, previous_transaction, ctl->perf_transaction_status);
+	pr_debug("new_status:%d prev_status:%d\n",
+		new_status, previous_status);
+
+	spin_unlock_irqrestore(&ctl->spin_lock, flags);
+}
+
+/**
+ * @ mdss_mdp_ctl_perf_get_transaction_status() -
+ *                             Get the status of the on-going operations
+ *                             for the command mode panels.
+ * @ctl - pointer to a ctl
+ *
+ * Return:
+ * The status of the transactions for the command mode panels,
+ * note that the bandwidth can be released only if all transaction
+ * status bits are zero.
+ */
+u32 mdss_mdp_ctl_perf_get_transaction_status(struct mdss_mdp_ctl *ctl)
+{
+	unsigned long flags;
+	u32 transaction_status;
+
+	/*
+	 * If Video Mode or not valid data to determine the status, return busy
+	 * status, so the bandwidth cannot be freed by the caller
+	 */
+	if (!ctl || !ctl->panel_data ||
+		(ctl->panel_data->panel_info.type != MIPI_CMD_PANEL)) {
+		return PERF_STATUS_BUSY;
 	}
 
 	if ((total_ab_quota != ctl->bus_ab_quota) ||
