@@ -668,6 +668,71 @@ static void __ref do_core_control(long temp)
 	}
 	mutex_unlock(&core_control_mutex);
 }
+/* Call with core_control_mutex locked */
+static int __ref update_offline_cores(int val)
+{
+	uint32_t cpu = 0;
+	int ret = 0;
+
+	if (!core_control_enabled)
+		return 0;
+
+	cpus_offlined = msm_thermal_info.core_control_mask & val;
+
+	for_each_possible_cpu(cpu) {
+		if (!(cpus_offlined & BIT(cpu)))
+			continue;
+		if (!cpu_online(cpu))
+			continue;
+		ret = cpu_down(cpu);
+		if (ret)
+			pr_err("Unable to offline CPU%d. err:%d\n",
+				cpu, ret);
+		else
+			pr_debug("Offlined CPU%d\n", cpu);
+	}
+	return ret;
+}
+
+static __ref int do_hotplug(void *data)
+{
+	int ret = 0;
+	uint32_t cpu = 0, mask = 0;
+	struct sched_param param = {.sched_priority = MAX_RT_PRIO-2};
+
+	if (!core_control_enabled) {
+		pr_debug("Core control disabled\n");
+		return -EINVAL;
+	}
+
+	sched_setscheduler(current, SCHED_FIFO, &param);
+	while (!kthread_should_stop()) {
+		while (wait_for_completion_interruptible(
+			&hotplug_notify_complete) != 0)
+			;
+		INIT_COMPLETION(hotplug_notify_complete);
+		mask = 0;
+
+		mutex_lock(&core_control_mutex);
+		for_each_possible_cpu(cpu) {
+			if (hotplug_enabled &&
+				cpus[cpu].hotplug_thresh_clear) {
+				set_threshold(cpus[cpu].sensor_id,
+				&cpus[cpu].threshold[HOTPLUG_THRESHOLD_HIGH]);
+
+				cpus[cpu].hotplug_thresh_clear = false;
+			}
+			if (cpus[cpu].offline || cpus[cpu].user_offline)
+				mask |= BIT(cpu);
+		}
+		if (mask != cpus_offlined)
+			update_offline_cores(mask);
+		mutex_unlock(&core_control_mutex);
+		sysfs_notify(cc_kobj, NULL, "cpus_offlined");
+	}
+
+	return ret;
+}
 #else
 static void do_core_control(long temp)
 {
