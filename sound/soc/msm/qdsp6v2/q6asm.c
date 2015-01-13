@@ -1172,6 +1172,8 @@ static int32_t is_no_wait_cmd_rsp(uint32_t opcode, uint32_t *cmd_type)
 			case ASM_SESSION_CMD_RUN_V2:
 			case ASM_SESSION_CMD_PAUSE:
 			case ASM_DATA_CMD_EOS:
+			case ASM_DATA_CMD_REMOVE_INITIAL_SILENCE:
+			case ASM_DATA_CMD_REMOVE_TRAILING_SILENCE:
 				return 1;
 			default:
 				break;
@@ -5027,6 +5029,85 @@ int q6asm_cmd_nowait(struct audio_client *ac, int cmd)
 	return 0;
 fail_cmd:
 	return -EINVAL;
+}
+
+int q6asm_cmd_nowait(struct audio_client *ac, int cmd)
+{
+	pr_debug("%s: stream_id: %d\n", __func__, ac->stream_id);
+	return __q6asm_cmd_nowait(ac, cmd, ac->stream_id);
+}
+
+int q6asm_stream_cmd_nowait(struct audio_client *ac, int cmd,
+			    uint32_t stream_id)
+{
+	pr_debug("%s: stream_id: %d\n", __func__, stream_id);
+	return __q6asm_cmd_nowait(ac, cmd, stream_id);
+}
+
+int __q6asm_send_meta_data(struct audio_client *ac, uint32_t stream_id,
+			  uint32_t initial_samples, uint32_t trailing_samples)
+{
+	struct asm_data_cmd_remove_silence silence;
+	int rc = 0;
+
+	if (!ac || ac->apr == NULL) {
+		pr_err("APR handle NULL\n");
+		return -EINVAL;
+	}
+	pr_debug("%s session[%d]", __func__, ac->session);
+	q6asm_stream_add_hdr_async(ac, &silence.hdr, sizeof(silence), FALSE,
+				  stream_id);
+
+	/*
+	 * Updated the token field with stream/session for compressed playback
+	 * Platform driver must know the the stream with which the command is
+	 * associated
+	 */
+	if (ac->io_mode & COMPRESSED_STREAM_IO)
+		silence.hdr.token = ((ac->session << 8) & 0xFFFF00) |
+				    (stream_id & 0xFF);
+	pr_debug("%s: token = 0x%x, stream_id  %d, session 0x%x\n",
+	      __func__, silence.hdr.token, stream_id, ac->session);
+
+	silence.hdr.opcode = ASM_DATA_CMD_REMOVE_INITIAL_SILENCE;
+	silence.num_samples_to_remove    = initial_samples;
+
+	atomic_inc(&ac->nowait_cmd_cnt);
+	rc = apr_send_pkt(ac->apr, (uint32_t *) &silence);
+	if (rc < 0) {
+		pr_err("%s: Commmand silence failed[%d]", __func__, rc);
+		atomic_dec(&ac->nowait_cmd_cnt);
+		goto fail_cmd;
+	}
+
+	silence.hdr.opcode = ASM_DATA_CMD_REMOVE_TRAILING_SILENCE;
+	silence.num_samples_to_remove    = trailing_samples;
+
+	atomic_inc(&ac->nowait_cmd_cnt);
+	rc = apr_send_pkt(ac->apr, (uint32_t *) &silence);
+	if (rc < 0) {
+		pr_err("%s: Commmand silence failed[%d]", __func__, rc);
+		atomic_dec(&ac->nowait_cmd_cnt);
+		goto fail_cmd;
+	}
+
+	return 0;
+fail_cmd:
+	return -EINVAL;
+}
+
+int q6asm_stream_send_meta_data(struct audio_client *ac, uint32_t stream_id,
+		uint32_t initial_samples, uint32_t trailing_samples)
+{
+	return __q6asm_send_meta_data(ac, stream_id, initial_samples,
+				     trailing_samples);
+}
+
+int q6asm_send_meta_data(struct audio_client *ac, uint32_t initial_samples,
+		uint32_t trailing_samples)
+{
+	return __q6asm_send_meta_data(ac, ac->stream_id, initial_samples,
+				     trailing_samples);
 }
 
 static void q6asm_reset_buf_state(struct audio_client *ac)
