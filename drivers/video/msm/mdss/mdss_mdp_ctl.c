@@ -260,9 +260,14 @@ int mdss_mdp_perf_calc_pipe(struct mdss_mdp_pipe *pipe,
 	 * no need to account for these lines in MDP clock or request bus
 	 * bandwidth to fetch them.
 	 */
-	src_h = pipe->src.h >> pipe->vert_deci;
+	src_h = DECIMATED_DIMENSION(src.h, pipe->vert_deci);
 
-	quota = fps * pipe->src.w * src_h;
+	quota = fps * src.w * src_h;
+
+	pr_debug("src(w,h)(%d,%d) dst(w,h)(%d,%d) dst_y=%d bpp=%d yuv=%d\n",
+		 pipe->src.w, src_h, pipe->dst.w, pipe->dst.h, pipe->dst.y,
+		 pipe->src_fmt->bpp, pipe->src_fmt->is_yuv);
+
 	if (pipe->src_fmt->chroma_sample == MDSS_MDP_CHROMA_420)
 		/*
 		 * with decimation, chroma is not downsampled, this means we
