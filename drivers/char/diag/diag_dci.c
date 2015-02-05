@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -596,6 +596,111 @@ int diag_process_dci_transaction(unsigned char *buf, int len)
 		return DIAG_DCI_SEND_DATA_FAIL;
 	}
 
+	/*
+	 * Previous packet is yet to be consumed by the client. Wait
+	 * till the buffer is free.
+	 */
+	while (retry_count < max_retries) {
+		retry_count++;
+		if (driver->in_busy_dcipktdata)
+			usleep_range(10000, 10100);
+		else
+			break;
+	}
+	/* The buffer is still busy */
+	if (driver->in_busy_dcipktdata) {
+		pr_err("diag: In %s, apps dci buffer is still busy. Dropping packet\n",
+								__func__);
+		return -EAGAIN;
+	}
+
+	/* Register this new DCI packet */
+	req_entry = diag_register_dci_transaction(req_uid);
+	if (!req_entry) {
+		pr_alert("diag: registering new DCI transaction failed\n");
+		return DIAG_DCI_NO_REG;
+	}
+
+	/* Check if it is a dedicated Apps command */
+	ret = diag_dci_process_apps_pkt(header, req_buf, req_entry->tag);
+	if (ret == DIAG_DCI_NO_ERROR || ret < 0)
+		return ret;
+
+	/* Check the registration table for command entries */
+	for (i = 0; i < diag_max_reg && !found; i++) {
+		entry = driver->table[i];
+		if (entry.process_id == NO_PROCESS)
+			continue;
+		if (entry.cmd_code == header->cmd_code &&
+			    entry.subsys_id == header->subsys_id &&
+			    entry.cmd_code_lo <= header->subsys_cmd_code &&
+			    entry.cmd_code_hi >= header->subsys_cmd_code) {
+			ret = diag_send_dci_pkt(entry, buf, len,
+						req_entry->tag);
+			found = 1;
+		} else if (entry.cmd_code == 255 && header->cmd_code == 75) {
+			if (entry.subsys_id == header->subsys_id &&
+			    entry.cmd_code_lo <= header->subsys_cmd_code &&
+			    entry.cmd_code_hi >= header->subsys_cmd_code) {
+				ret = diag_send_dci_pkt(entry, buf, len,
+							req_entry->tag);
+				found = 1;
+			}
+		} else if (entry.cmd_code == 255 && entry.subsys_id == 255) {
+			if (entry.cmd_code_lo <= header->cmd_code &&
+			    entry.cmd_code_hi >= header->cmd_code) {
+				/*
+				 * If its a Mode reset command, make sure it is
+				 * registered on the Apps Processor
+				 */
+
+/* [VZW][OBDM] Temporary fix "mode change cmd(0x29) issue." */
+//#ifdef CONFIG_MACH_MSM8974_G3_VZW
+#if 1
+#define MODE_RESET 2
+
+				if (entry.cmd_code_lo == MODE_CMD &&
+					entry.cmd_code_hi == MODE_CMD){
+					if (header->subsys_id == MODE_RESET){
+						if (entry.client_id != APPS_DATA)
+							continue;
+					}
+					else {
+						if (entry.client_id != MODEM_DATA)
+							continue;
+					}
+				}
+#else
+				/* QCT Original  */
+				if (entry.cmd_code_lo == MODE_CMD &&
+				    entry.cmd_code_hi == MODE_CMD &&
+					header->subsys_id == RESET_ID) {
+					if (entry.client_id != APPS_DATA)
+						continue;
+				}
+#endif  /* End VZW Feature  */
+
+					ret = diag_send_dci_pkt(entry, buf, len,
+								req_entry->tag);
+					found = 1;
+			}
+		}
+	}
+
+	return ret;
+}
+
+int diag_process_dci_transaction(unsigned char *buf, int len)
+{
+	unsigned char *temp = buf;
+	uint16_t log_code, item_num;
+	int ret = -1, found = 0;
+	int count, set_mask, num_codes, bit_index, event_id, offset = 0;
+	unsigned int byte_index, read_len = 0;
+	uint8_t equip_id, *log_mask_ptr, *head_log_mask_ptr, byte_mask;
+	uint8_t *event_mask_ptr;
+	struct diag_dci_client_tbl *dci_entry = NULL;
+
 	if (!temp) {
 		pr_err("diag: Invalid buffer in %s\n", __func__);
 		return -ENOMEM;
@@ -603,68 +708,7 @@ int diag_process_dci_transaction(unsigned char *buf, int len)
 
 	/* This is Pkt request/response transaction */
 	if (*(int *)temp > 0) {
-		if (len < DCI_PKT_REQ_MIN_LEN || len > USER_SPACE_DATA) {
-			pr_err("diag: dci: Invalid length %d len in %s", len,
-								__func__);
-			return -EIO;
-		}
-		/* enter this UID into kernel table and return index */
-		req_entry = diag_register_dci_transaction(*(int *)temp);
-		if (!req_entry) {
-			pr_alert("diag: registering new DCI transaction failed\n");
-			return DIAG_DCI_NO_REG;
-		}
-		temp += sizeof(int);
-		/*
-		 * Check for registered peripheral and fwd pkt to
-		 * appropriate proc
-		 */
-		cmd_code = (int)(*(char *)temp);
-		temp++;
-		subsys_id = (int)(*(char *)temp);
-		temp++;
-		subsys_cmd_code = *(uint16_t *)temp;
-		temp += sizeof(uint16_t);
-		read_len += sizeof(int) + 2 + sizeof(uint16_t);
-		if (read_len >= USER_SPACE_DATA) {
-			pr_err("diag: dci: Invalid length in %s\n", __func__);
-			return -EIO;
-		}
-		pr_debug("diag: %d %d %d", cmd_code, subsys_id,
-			subsys_cmd_code);
-		for (i = 0; i < diag_max_reg; i++) {
-			entry = driver->table[i];
-			if (entry.process_id != NO_PROCESS) {
-				if (entry.cmd_code == cmd_code &&
-					entry.subsys_id == subsys_id &&
-					entry.cmd_code_lo <= subsys_cmd_code &&
-					entry.cmd_code_hi >= subsys_cmd_code) {
-					ret = diag_send_dci_pkt(entry, buf,
-								len,
-								req_entry->tag);
-				} else if (entry.cmd_code == 255
-					  && cmd_code == 75) {
-					if (entry.subsys_id == subsys_id &&
-						entry.cmd_code_lo <=
-						subsys_cmd_code &&
-						entry.cmd_code_hi >=
-						subsys_cmd_code) {
-						ret = diag_send_dci_pkt(entry,
-							buf, len,
-							req_entry->tag);
-					}
-				} else if (entry.cmd_code == 255 &&
-					entry.subsys_id == 255) {
-					if (entry.cmd_code_lo <= cmd_code &&
-						entry.cmd_code_hi >=
-							cmd_code) {
-						ret = diag_send_dci_pkt(entry,
-							buf, len,
-							req_entry->tag);
-					}
-				}
-			}
-		}
+		return diag_process_dci_pkt_rsp(buf, len);
 	} else if (*(int *)temp == DCI_LOG_TYPE) {
 		/* Minimum length of a log mask config is 12 + 2 bytes for
 		   atleast one log code to be set or reset */
