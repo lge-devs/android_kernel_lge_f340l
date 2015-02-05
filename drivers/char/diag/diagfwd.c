@@ -555,6 +555,55 @@ int diag_process_smd_read_data(struct diag_smd_info *smd_info, void *buf,
 	}
 
 	return 0;
+err:
+	if ((smd_info->type == SMD_DATA_TYPE ||
+	     smd_info->type == SMD_CMD_TYPE) &&
+	     driver->logging_mode == MEMORY_DEVICE_MODE)
+		diag_ws_on_read(0);
+
+#ifdef CONFIG_LGE_DM_APP
+    if (driver->logging_mode == DM_APP_MODE)
+        diag_ws_on_read(0);
+#endif
+
+	return 0;
+}
+
+void diag_smd_queue_read(struct diag_smd_info *smd_info)
+{
+	if (!smd_info || !smd_info->ch)
+		return;
+
+	if ((smd_info->type == SMD_DATA_TYPE ||
+	     smd_info->type == SMD_CMD_TYPE) &&
+	     driver->logging_mode == MEMORY_DEVICE_MODE) {
+		diag_ws_on_notify();
+	}
+
+	switch (smd_info->type) {
+	case SMD_DCI_TYPE:
+	case SMD_DCI_CMD_TYPE:
+		queue_work(driver->diag_dci_wq,
+			   &(smd_info->diag_read_smd_work));
+		break;
+	case SMD_DATA_TYPE:
+		queue_work(smd_info->wq,
+			   &(smd_info->diag_read_smd_work));
+		break;
+	case SMD_CNTL_TYPE:
+	case SMD_CMD_TYPE:
+		queue_work(driver->diag_wq,
+			   &(smd_info->diag_read_smd_work));
+		break;
+	default:
+		pr_err("diag: In %s, invalid type: %d\n", __func__,
+			smd_info->type);
+		if ((smd_info->type == SMD_DATA_TYPE ||
+		     smd_info->type == SMD_CMD_TYPE) &&
+		     driver->logging_mode == MEMORY_DEVICE_MODE)
+			diag_ws_on_read(0);
+		return;
+	}
 }
 
 static int diag_smd_resize_buf(struct diag_smd_info *smd_info, void **buf,
@@ -778,8 +827,17 @@ void diag_smd_send_req(struct diag_smd_info *smd_info)
 				}
 			}
 		}
-		if (!driver->real_time_mode && smd_info->type == SMD_DATA_TYPE)
-			process_lock_on_read(&smd_info->nrt_lock, pkt_len);
+
+		if ((smd_info->type == SMD_DATA_TYPE ||
+		     smd_info->type == SMD_CMD_TYPE) &&
+		     driver->logging_mode == MEMORY_DEVICE_MODE)
+			diag_ws_on_read(total_recd);
+
+#ifdef CONFIG_LGE_DM_APP
+        if (smd_info->type == SMD_DATA_TYPE &&
+            driver->logging_mode == DM_APP_MODE)
+            diag_ws_on_read(pkt_len);
+#endif
 
 		if (total_recd > 0) {
 			if (!buf) {
@@ -830,12 +888,30 @@ void diag_smd_send_req(struct diag_smd_info *smd_info)
 
 		lge_dm_tty->set_logging = 1;
 		wake_up_interruptible(&lge_dm_tty->waitq);
-		/* LGE_CHANGE_E, modified to wake up tty driver when buf is empty, secheol.pyo@lge.com, 2013-07-21 */
 	}
+#endif
 
+          else {
+		if ((smd_info->type == SMD_DATA_TYPE ||
+		     smd_info->type == SMD_CMD_TYPE) &&
+		     driver->logging_mode == MEMORY_DEVICE_MODE) {
+			diag_ws_on_read(0);
+		}
+        }
 	return;
 
 fail_return:
+	if ((smd_info->type == SMD_DATA_TYPE ||
+	     smd_info->type == SMD_CMD_TYPE) &&
+	     driver->logging_mode == MEMORY_DEVICE_MODE)
+		diag_ws_on_read(0);
+
+#ifdef CONFIG_LGE_DM_APP
+    if (smd_info->type == SMD_DATA_TYPE &&
+        driver->logging_mode == DM_APP_MODE)
+        diag_ws_on_read(0);
+#endif
+
 	if (smd_info->type == SMD_DCI_TYPE ||
 					smd_info->type == SMD_DCI_CMD_TYPE)
 		diag_dci_try_deactivate_wakeup_source(smd_info->ch);
@@ -2320,26 +2396,145 @@ void diag_smd_notify(void *ctxt, unsigned event)
 			diag_dci_notify_client(smd_info->peripheral_mask,
 							DIAG_STATUS_OPEN);
 		}
-	} else if (event == SMD_EVENT_DATA && !driver->real_time_mode &&
-					smd_info->type == SMD_DATA_TYPE) {
-		process_lock_on_notify(&smd_info->nrt_lock);
-	}
-
-	wake_up(&driver->smd_wait_q);
-
-	if (smd_info->type == SMD_DCI_TYPE ||
-					smd_info->type == SMD_DCI_CMD_TYPE) {
-		if (event == SMD_EVENT_DATA)
-			diag_dci_try_activate_wakeup_source(smd_info->ch);
-		queue_work(driver->diag_dci_wq,
-				&(smd_info->diag_read_smd_work));
-	} else if (smd_info->type == SMD_DATA_TYPE) {
-		queue_work(smd_info->wq,
-				&(smd_info->diag_read_smd_work));
-	} else {
-		queue_work(driver->diag_wq, &(smd_info->diag_read_smd_work));
+		diag_smd_queue_read(smd_info);
+		wake_up(&driver->smd_wait_q);
+	} else if (event == SMD_EVENT_DATA) {
+		diag_smd_queue_read(smd_info);
+		wake_up(&driver->smd_wait_q);
+		if (smd_info->type == SMD_DCI_TYPE ||
+		    smd_info->type == SMD_DCI_CMD_TYPE) {
+			diag_dci_try_activate_wakeup_source();
+		}
 	}
 }
+#ifdef CONFIG_LGE_DIAG_BYPASS
+static int diagfwd_check_buf_match_no_spinlock(int num_channels,
+			struct diag_smd_info *data, unsigned char *buf)
+{
+	int i;
+	int found_it = 0;
+
+	for (i = 0; i < num_channels; i++) {
+		if (buf == (void *)data[i].buf_in_1) {
+			data[i].in_busy_1 = 0;
+			found_it = 1;
+			break;
+		} else if (buf == (void *)data[i].buf_in_2) {
+			data[i].in_busy_2 = 0;
+			found_it = 1;
+			break;
+		}
+	}
+
+	if (found_it) {
+		if (data[i].type == SMD_DATA_TYPE)
+			queue_work(data[i].wq,
+					&(data[i].diag_read_smd_work));
+		else
+			queue_work(driver->diag_wq,
+					&(data[i].diag_read_smd_work));
+	}
+
+	return found_it;
+}
+
+static int diagfwd_write_complete_no_spinlock(struct diag_request *diag_write_ptr)
+{
+	unsigned char *buf = diag_write_ptr->buf;
+	int found_it = 0;
+	//unsigned long flags;
+
+	/* Determine if the write complete is for data from modem/apps/q6 */
+	found_it = diagfwd_check_buf_match_no_spinlock(NUM_SMD_DATA_CHANNELS,
+						driver->smd_data, buf);
+
+	if (!found_it && driver->supports_separate_cmdrsp)
+		found_it = diagfwd_check_buf_match_no_spinlock(NUM_SMD_CMD_CHANNELS,
+						driver->smd_cmd, buf);
+
+#ifdef CONFIG_DIAG_SDIO_PIPE
+	if (!found_it) {
+		if (buf == (void *)driver->buf_in_sdio) {
+			if (machine_is_msm8x60_fusion() ||
+				 machine_is_msm8x60_fusn_ffa())
+				diagfwd_write_complete_sdio();
+			else
+				pr_err("diag: Incorrect buffer pointer while WRITE");
+			found_it = 1;
+		}
+	}
+#endif
+
+	if (!found_it) {
+		if (driver->logging_mode != USB_MODE)
+			pr_debug("diag: freeing buffer when not in usb mode\n");
+
+		diagmem_free(driver, (unsigned char *)buf,
+						POOL_TYPE_HDLC);
+		diagmem_free(driver, (unsigned char *)diag_write_ptr,
+						POOL_TYPE_WRITE_STRUCT);
+	}
+	return 0;
+}
+
+int diag_bypass_response(struct diag_request *write_ptr, int data_type)
+{
+    if(diag_bypass_enable) {
+        lge_bypass_process(write_ptr->buf, write_ptr->length);
+#ifdef CONFIG_DIAGFWD_BRIDGE_CODE
+        if(data_type >= HSIC_DATA) {
+            diagfwd_write_complete_hsic(write_ptr, 0);
+        }
+        else {
+            diagfwd_write_complete_no_spinlock(write_ptr);
+        }
+#else
+
+        diagfwd_write_complete_no_spinlock(write_ptr);
+#endif
+        return 1;
+    }
+    else {
+        return 0;
+    }
+}
+
+int diag_bypass_request(const unsigned char *buf, int count)
+{
+	int smd_reset = 0;
+	int data_type = 0;
+
+	if(diag_bypass_enable) {
+        pr_info("diag_bypass_request\n");
+
+		for(data_type=0; ((smd_reset == 0) && (data_type<NUM_SMD_CMD_CHANNELS)); data_type++) {
+			if(driver->smd_cmd[data_type].in_busy_1 || driver->smd_cmd[data_type].in_busy_2) {
+				smd_reset = 1;
+				break;
+			}
+		}
+
+		for(data_type=0; ((smd_reset == 0) && (data_type<NUM_SMD_DATA_CHANNELS)); data_type++) {
+			if(driver->smd_data[data_type].in_busy_1 || driver->smd_data[data_type].in_busy_2) {
+				smd_reset = 1;
+				break;
+			}
+		}
+
+		if(smd_reset) {
+			diag_reset_smd_data(RESET_AND_QUEUE);
+		}
+
+		driver->usb_buf_out = (unsigned char *)buf;
+		driver->read_len_legacy = count;
+		queue_work(driver->diag_wq, &(driver->diag_proc_hdlc_work));
+
+		return count;
+	}
+
+	return 0;
+}
+#endif
 
 static int diag_smd_probe(struct platform_device *pdev)
 {
