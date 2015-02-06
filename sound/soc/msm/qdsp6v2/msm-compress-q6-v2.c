@@ -565,15 +565,15 @@ static int msm_compr_configure_dsp(struct snd_compr_stream *cstream)
 	};
 	if (prtd->codec_param.codec.format == SNDRV_PCM_FORMAT_S24_LE)
 		bits_per_sample = 24;
-	if (prtd->codec_param.codec.format == SNDRV_PCM_FORMAT_S32_LE)
+	else if (prtd->codec_param.codec.format == SNDRV_PCM_FORMAT_S32_LE)
 		bits_per_sample = 32;
 
-	pr_debug("%s: stream_id %d\n", __func__, ac->stream_id);
-
+	pr_debug("%s: stream_id %d bits_per_sample %d\n",
+			__func__, ac->stream_id, bits_per_sample);
 	ret = q6asm_stream_open_write_v2(ac,
-				prtd->codec, bits_per_sample,
-				ac->stream_id,
-				prtd->gapless_state.use_dsp_gapless_mode);
+			prtd->codec, bits_per_sample,
+			ac->stream_id,
+			prtd->gapless_state.use_dsp_gapless_mode);
 	if (ret < 0) {
 		pr_err("%s: Session out open failed\n", __func__);
 		 return -ENOMEM;
@@ -903,6 +903,9 @@ static int msm_compr_trigger(struct snd_compr_stream *cstream, int cmd)
 	int rc = 0;
 	int bytes_to_write;
 	unsigned long flags;
+	int stream_id;
+	uint32_t stream_index;
+	uint16_t bits_per_sample = 16;
 
 	if (cstream->direction != SND_COMPRESS_PLAYBACK) {
 		pr_err("%s: Unsupported stream type\n", __func__);
@@ -1096,7 +1099,91 @@ static int msm_compr_trigger(struct snd_compr_stream *cstream, int cmd)
 		prtd->cmd_interrupt = 0;
 		break;
 	case SND_COMPR_TRIGGER_NEXT_TRACK:
+		if (!prtd->gapless_state.use_dsp_gapless_mode) {
+			pr_debug("%s: ignore trigger next track\n", __func__);
+			rc = 0;
+			break;
+		}
 		pr_debug("%s: SND_COMPR_TRIGGER_NEXT_TRACK\n", __func__);
+		spin_lock_irqsave(&prtd->lock, flags);
+		rc = 0;
+		/* next stream in gapless */
+		stream_id = NEXT_STREAM_ID(ac->stream_id);
+		/*
+		 * Wait if stream 1 has not completed before honoring next
+		 * track for stream 3. Scenario happens if second clip is
+		 * small and fills in one buffer so next track will be
+		 * called immediately.
+		 */
+		stream_index = STREAM_ARRAY_INDEX(stream_id);
+		if (stream_index >= MAX_NUMBER_OF_STREAMS ||
+		    stream_index < 0) {
+			pr_err("%s: Invalid stream index: %d", __func__,
+				stream_index);
+			spin_unlock_irqrestore(&prtd->lock, flags);
+			rc = -EINVAL;
+			break;
+		}
+
+		if (prtd->gapless_state.stream_opened[stream_index]) {
+			if (prtd->gapless_state.gapless_transition) {
+				rc = msm_compr_wait_for_stream_avail(prtd,
+								    &flags);
+			} else {
+				/*
+				 * If session is already opened break out if
+				 * the state is not gapless transition. This
+				 * is when seek happens after the last buffer
+				 * is sent to the driver. Next track would be
+				 * called again after last buffer is sent.
+				 */
+				pr_debug("next session is in opened state\n");
+				spin_unlock_irqrestore(&prtd->lock, flags);
+				break;
+			}
+		}
+		spin_unlock_irqrestore(&prtd->lock, flags);
+		if (rc < 0) {
+			/*
+			 * if return type EINTR  then reset to zero. Tiny
+			 * compress treats EINTR as error and prevents PARTIAL
+			 * DRAIN. EINTR is not an error. wait for stream avail
+			 * is interrupted by some other command like FLUSH.
+			 */
+			if (rc == -EINTR) {
+				pr_debug("%s: EINTR reset rc to 0\n", __func__);
+				rc = 0;
+			}
+			break;
+		}
+
+		if (prtd->codec_param.codec.format == SNDRV_PCM_FORMAT_S24_LE)
+			bits_per_sample = 24;
+		else if (prtd->codec_param.codec.format ==
+			 SNDRV_PCM_FORMAT_S32_LE)
+			bits_per_sample = 32;
+
+		pr_debug("%s: open_write stream_id %d bits_per_sample %d",
+				__func__, stream_id, bits_per_sample);
+		rc = q6asm_stream_open_write_v2(prtd->audio_client,
+				prtd->codec, bits_per_sample,
+				stream_id,
+				prtd->gapless_state.use_dsp_gapless_mode);
+		if (rc < 0) {
+			pr_err("%s: Session out open failed for gapless\n",
+				 __func__);
+			break;
+		}
+		rc = msm_compr_send_media_format_block(cstream, stream_id);
+		if (rc < 0) {
+			 pr_err("%s, failed to send media format block\n",
+				__func__);
+			break;
+		}
+		spin_lock_irqsave(&prtd->lock, flags);
+		prtd->gapless_state.stream_opened[stream_index] = 1;
+		prtd->gapless_state.set_next_stream_id = true;
+		spin_unlock_irqrestore(&prtd->lock, flags);
 		break;
 	}
 

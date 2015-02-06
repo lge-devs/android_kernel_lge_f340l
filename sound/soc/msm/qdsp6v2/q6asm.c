@@ -1109,6 +1109,15 @@ static int32_t q6asm_srvc_callback(struct apr_client_data *data, void *priv)
 			if (payload[1] != 0) {
 				pr_err("%s: cmd = 0x%x returned error = 0x%x sid:%d\n",
 					__func__, payload[0], payload[1], sid);
+				if (payload[0] ==
+				    ASM_CMD_SHARED_MEM_UNMAP_REGIONS)
+					atomic_set(&ac->unmap_cb_success, 0);
+				atomic_set(&ac->mem_state, -payload[1]);
+				wake_up(&ac->mem_wait);
+			} else {
+				if (payload[0] ==
+				    ASM_CMD_SHARED_MEM_UNMAP_REGIONS)
+					atomic_set(&ac->unmap_cb_success, 1);
 			}
 
 			if (atomic_read(&ac->cmd_state)) {
