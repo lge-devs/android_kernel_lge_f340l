@@ -1940,6 +1940,22 @@ static int venus_hfi_core_release(void *device)
 			mutex_unlock(&dev->clk_pwr_lock);
 			return -EIO;
 		}
+		mutex_unlock(&dev->clk_pwr_lock);
+		if (dev->state != VENUS_STATE_DEINIT) {
+                    rc = __unset_free_ocmem(dev);
+                    if (rc)
+                        dprintk(VIDC_ERR,
+                                "Failed in unset_free_ocmem() in %s, rc : %d\n",
+                                __func__, rc);
+                }
+                mutex_lock(&dev->clk_pwr_lock);
+                rc = venus_hfi_clk_gating_off(device);
+		if (rc) {
+			dprintk(VIDC_ERR,
+					"%s : Clock enable failed\n", __func__);
+			mutex_unlock(&dev->clk_pwr_lock);
+			return -EIO;
+		}
 		venus_hfi_write_register(dev,
 				VIDC_CPU_CS_SCIACMDARG3, 0, 0);
 		if (!(dev->intr_status & VIDC_WRAPPER_INTR_STATUS_A2HWD_BMSK))
@@ -2939,7 +2955,8 @@ static void venus_hfi_response_handler(struct venus_hfi_device *device)
 	u32 rc = 0;
 	struct hfi_sfr_struct *vsfr = NULL;
 	dprintk(VIDC_INFO, "#####venus_hfi_response_handler#####\n");
-	if (device) {
+	/* Process messages only if device is in valid state*/
+	if (device && device->state != VENUS_STATE_DEINIT) {
 		if ((device->intr_status &
 			VIDC_WRAPPER_INTR_CLEAR_A2HWD_BMSK)) {
 			dprintk(VIDC_ERR, "Received: Watchdog timeout %s",
@@ -2954,6 +2971,16 @@ static void venus_hfi_response_handler(struct venus_hfi_device *device)
 		}
 
 		while (!venus_hfi_iface_msgq_read(device, packet)) {
+			/* During SYS_ERROR processing the device state
+			*  will be changed to DEINIT. Below check will
+			*  make sure no messages messages are read or
+			*  processed after processing SYS_ERROR
+			*/
+			if (device->state == VENUS_STATE_DEINIT) {
+				dprintk(VIDC_ERR,
+					"core DEINIT'd, stopping q reads\n");
+				break;
+			}
 			rc = hfi_process_msg_packet(device->callback,
 				device->device_id,
 				(struct vidc_hal_msg_pkt_hdr *) packet,
@@ -3749,7 +3776,6 @@ static void venus_hfi_unload_fw(void *dev)
 		return;
 	}
 	if (device->resources.fw.cookie) {
-		flush_workqueue(device->vidc_workq);
 		flush_workqueue(device->venus_pm_workq);
 		subsystem_put(device->resources.fw.cookie);
 		venus_hfi_interface_queues_release(dev);

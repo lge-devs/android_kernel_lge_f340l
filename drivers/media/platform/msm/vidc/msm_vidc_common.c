@@ -784,101 +784,78 @@ static void handle_session_error(enum command_response cmd, void *data)
 			mutex_unlock(&inst->sync_lock);
 			msm_vidc_queue_v4l2_event(inst,
 					V4L2_EVENT_MSM_VIDC_SYS_ERROR);
-		}
-	} else {
-		dprintk(VIDC_ERR,
-			"Failed to get valid response for session error\n");
-	}
-}
 static void handle_sys_error(enum command_response cmd, void *data)
 {
 	struct msm_vidc_cb_cmd_done *response = data;
 	struct msm_vidc_inst *inst = NULL ;
 	struct msm_vidc_core *core = NULL;
-	struct hfi_device *hdev = NULL;
+        struct hfi_device *hdev = NULL;
 	int rc = 0;
+	struct msm_vidc_inst *inst = NULL;
 
 	subsystem_crashed("venus");
-	if (response) {
-		core = get_vidc_core(response->device_id);
-		dprintk(VIDC_WARN, "SYS_ERROR received for core %p\n", core);
-		if (core) {
-			mutex_lock(&core->lock);
-			core->state = VIDC_CORE_INVALID;
-			mutex_unlock(&core->lock);
-			mutex_lock(&core->sync_lock);
-			list_for_each_entry(inst, &core->instances,
-					list) {
-				mutex_lock(&inst->lock);
-				inst->state = MSM_VIDC_CORE_INVALID;
-				if (inst->core)
-					hdev = inst->core->device;
-				if (hdev && inst->session) {
-					dprintk(VIDC_DBG,
-					"cleaning up inst: 0x%p", inst);
-					rc = call_hfi_op(hdev, session_clean,
-						(void *) inst->session);
-					if (rc)
-						dprintk(VIDC_ERR,
-							"Sess clean failed :%p",
-							inst);
-				}
-				inst->session = NULL;
-				mutex_unlock(&inst->lock);
-				msm_vidc_queue_v4l2_event(inst,
-						V4L2_EVENT_MSM_VIDC_SYS_ERROR);
-			}
-			mutex_unlock(&core->sync_lock);
-		} else {
-			dprintk(VIDC_ERR,
-				"Got SYS_ERR but unable to identify core");
-		}
-	} else {
+	if (!response) {
 		dprintk(VIDC_ERR,
 			"Failed to get valid response for sys error\n");
-	}
-}
-
-static void handle_sys_watchdog_timeout(enum command_response cmd, void *data)
-{
-	struct msm_vidc_cb_cmd_done *response = data;
-	struct msm_vidc_inst *inst;
-	struct msm_vidc_core *core = NULL;
-	struct hfi_device *hdev = NULL;
-	int rc = 0;
-	dprintk(VIDC_ERR, "Venus Subsystem crashed\n");
-	core = get_vidc_core(response->device_id);
-	if (!core) {
-		dprintk(VIDC_ERR, "Wrong device_id received\n");
 		return;
 	}
-	subsystem_crashed("venus");
+
+	core = get_vidc_core(response->device_id);
+	if (!core) {
+		dprintk(VIDC_ERR,
+				"Got SYS_ERR but unable to identify core\n");
+		return;
+	}
+
+	dprintk(VIDC_WARN, "SYS_ERROR %d received for core %p\n", cmd, core);
 	mutex_lock(&core->lock);
 	core->state = VIDC_CORE_INVALID;
-	mutex_unlock(&core->lock);
-	mutex_lock(&core->sync_lock);
-	list_for_each_entry(inst, &core->instances, list) {
-		if (inst) {
-			msm_vidc_queue_v4l2_event(inst,
-					V4L2_EVENT_MSM_VIDC_SYS_ERROR);
-			mutex_lock(&inst->lock);
-			inst->state = MSM_VIDC_CORE_INVALID;
-			if (inst->core)
-				hdev = inst->core->device;
-			if (hdev && inst->session) {
-				rc = call_hfi_op(hdev, session_clean,
-						(void *) inst->session);
-				if (rc)
-					dprintk(VIDC_ERR,
-						"Sess clean failed :%p",
-						inst);
 
-			}
-			inst->session = NULL;
-			mutex_unlock(&inst->lock);
+	/*
+	* 1. Delete each instance session from hfi list
+	* 2. Notify all clients about hardware error.
+	*/
+	list_for_each_entry(inst, &core->instances,
+			list) {
+		mutex_lock(&inst->lock);
+		inst->state = MSM_VIDC_CORE_INVALID;
+		if (inst->core)
+			hdev = inst->core->device;
+		if (hdev && inst->session) {
+			dprintk(VIDC_DBG,
+			"cleaning up inst: 0x%p\n", inst);
+			rc = call_hfi_op(hdev, session_clean,
+				(void *) inst->session);
+			if (rc)
+				dprintk(VIDC_ERR,
+					"Sess clean failed :%p\n",
+					inst);
 		}
+		inst->session = NULL;
+		mutex_unlock(&inst->lock);
+		msm_vidc_queue_v4l2_event(inst,
+				V4L2_EVENT_MSM_VIDC_SYS_ERROR);
 	}
-	mutex_unlock(&core->sync_lock);
+
+        if (core->state == VIDC_CORE_INVALID) {
+		dprintk(VIDC_DBG, "Calling core_release\n");
+		rc = call_hfi_op(hdev, core_release,
+			hdev->hfi_device_data);
+		if (rc) {
+			dprintk(VIDC_ERR, "core_release failed\n");
+			mutex_unlock(&core->lock);
+			return;
+		}
+        }
+
+        core->state = VIDC_CORE_UNINIT;
+        call_hfi_op(hdev, unload_fw, hdev->hfi_device_data);
+        dprintk(VIDC_DBG, "Firmware unloaded\n");
+        if (core->resources.ocmem_size)
+            msm_comm_unvote_buses(core, DDR_MEM|OCMEM_MEM);
+        else
+            msm_comm_unvote_buses(core, DDR_MEM);
+	mutex_unlock(&core->lock);
 }
 
 static void handle_session_close(enum command_response cmd, void *data)
@@ -2438,7 +2415,8 @@ int msm_comm_qbuf(struct vb2_buffer *vb)
 	}
 
 	if (inst->state == MSM_VIDC_CORE_INVALID ||
-		core->state == VIDC_CORE_INVALID) {
+		core->state == VIDC_CORE_INVALID ||
+		core->state == VIDC_CORE_UNINIT) {
 		dprintk(VIDC_ERR, "Core is in bad state. Can't Queue\n");
 		return -EINVAL;
 	}
@@ -3053,7 +3031,11 @@ int msm_comm_flush(struct msm_vidc_inst *inst, u32 flags)
 		dprintk(VIDC_INFO, "Input only flush not supported\n");
 		return 0;
 	}
+	mutex_lock(&inst->sync_lock);
+	msm_comm_flush_dynamic_buffers(inst);
+	mutex_unlock(&inst->sync_lock);
 	if (inst->state == MSM_VIDC_CORE_INVALID ||
+			core->state == VIDC_CORE_UNINIT ||
 			core->state == VIDC_CORE_INVALID) {
 		dprintk(VIDC_ERR,
 				"Core %p and inst %p are in bad state\n",
@@ -3462,11 +3444,13 @@ void msm_comm_smem_free(struct msm_vidc_inst *inst, struct msm_smem *mem)
 			"%s: invalid params: %p %p\n", __func__, inst, mem);
 		return;
 	}
-	if (power_on_for_smem(inst))
+	if (inst->state != MSM_VIDC_CORE_INVALID) {
+            if (power_on_for_smem(inst))
 		return;
+        }
 
 	return msm_smem_free(inst->mem_client, mem);
-}
+        }
 
 int msm_comm_smem_cache_operations(struct msm_vidc_inst *inst,
 		struct msm_smem *mem, enum smem_cache_ops cache_ops)
@@ -3482,12 +3466,14 @@ int msm_comm_smem_cache_operations(struct msm_vidc_inst *inst,
 struct msm_smem *msm_comm_smem_user_to_kernel(struct msm_vidc_inst *inst,
 			int fd, u32 offset, enum hal_buffer buffer_type)
 {
-	if (!inst) {
+        if (!inst) {
 		dprintk(VIDC_ERR, "%s: invalid inst: %p\n", __func__, inst);
 		return NULL;
 	}
-	if (power_on_for_smem(inst))
+	if (inst->state != MSM_VIDC_CORE_INVALID) {
+            if (power_on_for_smem(inst))
 		return NULL;
+        }
 
 	return msm_smem_user_to_kernel(inst->mem_client,
 			fd, offset, buffer_type);
