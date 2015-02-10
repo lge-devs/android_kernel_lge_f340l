@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2014, Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -786,6 +786,15 @@ int q6lsm_snd_model_buf_alloc(struct lsm_client *client, uint32_t len)
 
 	mutex_lock(&client->cmd_lock);
 	if (!client->sound_model.data) {
+		if ((len > SIZE_MAX - pad_zero) ||
+		    (len + pad_zero >
+		     SIZE_MAX - lsm_cal.cal_size)) {
+			pr_err("%s: invalid allocation size, len = %zd, pad_zero =%zd, cal_size = %zd\n",
+				__func__, len, pad_zero,
+				lsm_cal.cal_size);
+			rc = -EINVAL;
+			goto fail;
+		}
 		client->sound_model.client =
 		    msm_ion_client_create(UINT_MAX, "lsm_client");
 		if (IS_ERR_OR_NULL(client->sound_model.client)) {
