@@ -381,6 +381,13 @@ config LGE_ECO_MODE
 	depends on MACH_LGE
 	help
 	  LGE ECO mode support
+config LGE_QSDL_SUPPORT
+    tristate "Support for Quality Statistics Data Logging"
+    default n
+    depends on MACH_LGE
+    help
+       QSDL is a feature which notify infomation for quality statistics
+       data logging of device.
 
 config LGE_QFPROM_INTERFACE
 	bool "Support qfprom interface"
