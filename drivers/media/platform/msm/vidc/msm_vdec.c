@@ -329,7 +329,36 @@ static struct msm_vidc_ctrl msm_vdec_ctrls[] = {
 		.menu_skip_mask = 0,
 		.step = 1,
 		.qmenu = NULL,
-		.cluster = 0,
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDC_VIDEO_CONCEAL_COLOR,
+		.name = "Picture concealed color",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.minimum = 0x0,
+		.maximum = 0xffffff,
+		.default_value = DEFAULT_VIDEO_CONCEAL_COLOR_BLACK,
+		.step = 1,
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDC_VIDEO_BUFFER_SIZE_LIMIT,
+		.name = "Buffer size limit",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.minimum = 0,
+		.maximum = 0x7fffffff,
+		.default_value = 0,
+		.step = 1,
+		.menu_skip_mask = 0,
+		.qmenu = NULL,
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDC_VIDEO_PRIORITY,
+		.name = "Session Priority",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.minimum = V4L2_MPEG_VIDC_VIDEO_PRIORITY_REALTIME_ENABLE,
+		.maximum = V4L2_MPEG_VIDC_VIDEO_PRIORITY_REALTIME_DISABLE,
+		.default_value = V4L2_MPEG_VIDC_VIDEO_PRIORITY_REALTIME_DISABLE,
+		.step = 1,
+		.qmenu = NULL,
 	},
 };
 
@@ -1760,6 +1789,23 @@ static int try_set_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 			rc = -ENOTSUPP;
 			break;
 		}
+		break;
+	case V4L2_CID_MPEG_VIDC_VIDEO_CONCEAL_COLOR:
+		property_id = HAL_PARAM_VDEC_CONCEAL_COLOR;
+		property_val = ctrl->val;
+		pdata = &property_val;
+		break;
+	case V4L2_CID_MPEG_VIDC_VIDEO_BUFFER_SIZE_LIMIT:
+	{
+		inst->capability.buffer_size_limit = ctrl->val;
+		dprintk(VIDC_DBG,
+			"Limiting input buffer size to :%u\n", ctrl->val);
+		break;
+	}
+	case V4L2_CID_MPEG_VIDC_VIDEO_PRIORITY:
+		property_id = HAL_CONFIG_REALTIME;
+		hal_property.enable = ctrl->val;
+		pdata = &hal_property;
 		break;
 	default:
 		break;

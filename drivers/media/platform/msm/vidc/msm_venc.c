@@ -729,8 +729,107 @@ static struct msm_vidc_ctrl msm_venc_ctrls[] = {
 		.maximum = V4L2_CID_MPEG_VIDC_VIDEO_DEINTERLACE_ENABLED,
 		.default_value = V4L2_CID_MPEG_VIDC_VIDEO_DEINTERLACE_DISABLED,
 		.step = 1,
-		.cluster = MSM_VENC_CTRL_CLUSTER_DEINTERLACE,
-	}
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDC_VIDEO_USELTRFRAME,
+		.name = "H264 Use LTR",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.minimum = 0,
+		.maximum = (MAX_LTR_FRAME_COUNT - 1),
+		.default_value = 0,
+		.step = 1,
+		.qmenu = NULL,
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDC_VIDEO_LTRCOUNT,
+		.name = "Ltr Count",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.minimum = 0,
+		.maximum = MAX_LTR_FRAME_COUNT,
+		.default_value = 0,
+		.step = 1,
+		.qmenu = NULL,
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDC_VIDEO_LTRMODE,
+		.name = "Ltr Mode",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.minimum = V4L2_MPEG_VIDC_VIDEO_LTR_MODE_DISABLE,
+		.maximum = V4L2_MPEG_VIDC_VIDEO_LTR_MODE_PERIODIC,
+		.default_value = V4L2_MPEG_VIDC_VIDEO_LTR_MODE_DISABLE,
+		.step = 1,
+		.qmenu = NULL,
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDC_VIDEO_MARKLTRFRAME,
+		.name = "H264 Mark LTR",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.minimum = 0,
+		.maximum = (MAX_LTR_FRAME_COUNT - 1),
+		.default_value = 0,
+		.step = 1,
+		.qmenu = NULL,
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDC_VIDEO_HIER_P_NUM_LAYERS,
+		.name = "Set Hier P num layers",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.minimum = 0,
+		.maximum = 3,
+		.default_value = 0,
+		.step = 1,
+		.qmenu = NULL,
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDC_VIDEO_ENABLE_INITIAL_QP,
+		.name = "Enable setting initial QP",
+		.type = V4L2_CTRL_TYPE_BUTTON,
+		.minimum = 0,
+		.maximum = 0,
+		.default_value = 0,
+		.step = 0,
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDC_VIDEO_I_FRAME_QP,
+		.name = "Iframe initial QP",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.minimum = 1,
+		.maximum = 51,
+		.default_value = 1,
+		.step = 1,
+		.qmenu = NULL,
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDC_VIDEO_P_FRAME_QP,
+		.name = "Pframe initial QP",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.minimum = 1,
+		.maximum = 51,
+		.default_value = 1,
+		.step = 1,
+		.qmenu = NULL,
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDC_VIDEO_B_FRAME_QP,
+		.name = "Bframe initial QP",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.minimum = 1,
+		.maximum = 51,
+		.default_value = 1,
+		.step = 1,
+		.qmenu = NULL,
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDC_VIDEO_PRIORITY,
+		.name = "Session Priority",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.minimum = V4L2_MPEG_VIDC_VIDEO_PRIORITY_REALTIME_ENABLE,
+		.maximum = V4L2_MPEG_VIDC_VIDEO_PRIORITY_REALTIME_DISABLE,
+		.default_value = V4L2_MPEG_VIDC_VIDEO_PRIORITY_REALTIME_DISABLE,
+		.step = 1,
+		.qmenu = NULL,
+	},
+
 };
 
 #define NUM_CTRLS ARRAY_SIZE(msm_venc_ctrls)
@@ -1971,7 +2070,41 @@ static int try_set_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 		pdata = &enable;
 		break;
 	}
+	case V4L2_CID_MPEG_VIDC_VIDEO_USELTRFRAME:
+		property_id = HAL_CONFIG_VENC_USELTRFRAME;
+		useltr.refltr = (1 << ctrl->val);
+		useltr.useconstrnt = false;
+		useltr.frames = 0;
+		pdata = &useltr;
+		break;
+	case V4L2_CID_MPEG_VIDC_VIDEO_MARKLTRFRAME:
+		property_id = HAL_CONFIG_VENC_MARKLTRFRAME;
+		markltr.markframe = ctrl->val;
+		pdata = &markltr;
+		break;
+	case V4L2_CID_MPEG_VIDC_VIDEO_HIER_P_NUM_LAYERS:
+		property_id = HAL_CONFIG_VENC_HIER_P_NUM_FRAMES;
+		hier_p_layers = ctrl->val;
+		rc = msm_venc_toggle_hier_p(inst, hier_p_layers ? true : false);
+		if (rc)
+			break;
+		if (hier_p_layers > (inst->capability.hier_p.max - 1)) {
+			dprintk(VIDC_ERR,
+				"Error setting hier p num layers = %d max supported by f/w = %d\n",
+				hier_p_layers,
+				inst->capability.hier_p.max - 1);
+			rc = -ENOTSUPP;
+			break;
+		}
+		pdata = &hier_p_layers;
+		break;
+	case V4L2_CID_MPEG_VIDC_VIDEO_PRIORITY:
+		property_id = HAL_CONFIG_REALTIME;
+		enable.enable = ctrl->val;
+		pdata = &enable;
+		break;
 	default:
+		dprintk(VIDC_ERR, "Unsupported index: %x\n", ctrl->id);
 		rc = -ENOTSUPP;
 		break;
 	}
