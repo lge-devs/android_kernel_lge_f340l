@@ -844,6 +844,15 @@ static int qseecom_unload_app(struct qseecom_dev_handle *data)
 		} else {
 			pr_warn("App id %d now unloaded\n", req.app_id);
 		}
+		if (resp.result == QSEOS_RESULT_FAILURE) {
+			pr_err("app (%d) unload_failed!!\n",
+					data->client.app_id);
+			return -EFAULT;
+		}
+		if (resp.result == QSEOS_RESULT_SUCCESS)
+			pr_debug("App (%d) is unloaded!!\n",
+					data->client.app_id);
+		__qseecom_cleanup_app(data);
 		if (resp.result == QSEOS_RESULT_INCOMPLETE) {
 			ret = __qseecom_process_incomplete_cmd(data, &resp);
 			if (ret) {
@@ -853,6 +862,30 @@ static int qseecom_unload_app(struct qseecom_dev_handle *data)
 			}
 		}
 	}
+
+	if (found_app) {
+		spin_lock_irqsave(&qseecom.registered_app_list_lock, flags1);
+		if (app_crash) {
+			ptr_app->ref_cnt = 0;
+			pr_debug("app_crash: ref_count = 0\n");
+		} else {
+			if (ptr_app->ref_cnt == 1) {
+				ptr_app->ref_cnt = 0;
+				pr_debug("ref_count set to 0\n");
+			} else {
+				ptr_app->ref_cnt--;
+				pr_debug("Can't unload app(%d) inuse\n",
+					ptr_app->app_id);
+			}
+		}
+		if (unload) {
+			list_del(&ptr_app->list);
+			kzfree(ptr_app);
+		}
+		spin_unlock_irqrestore(&qseecom.registered_app_list_lock,
+								flags1);
+	}
+unload_exit:
 	qseecom_unmap_ion_allocated_memory(data);
 	data->released = true;
 	return ret;
@@ -3201,7 +3234,7 @@ static int qseecom_release(struct inode *inode, struct file *file)
 	int ret = 0;
 
 	if (data->released == false) {
-		pr_warn("data: released = false, type = %d, data = 0x%x\n",
+		pr_debug("data: released = false, type = %d, data = 0x%x\n",
 			data->type, (u32)data);
 		switch (data->type) {
 		case QSEECOM_LISTENER_SERVICE:
