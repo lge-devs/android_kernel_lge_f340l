@@ -129,7 +129,8 @@ struct msm_compr_audio {
 
 	wait_queue_head_t eos_wait;
 	wait_queue_head_t drain_wait;
-	wait_queue_head_t flush_wait;
+	wait_queue_head_t close_wait;
+	wait_queue_head_t wait_for_stream_avail;
 
 	spinlock_t lock;
 };
@@ -312,9 +313,44 @@ static void compr_event_handler(uint32_t opcode,
 			spin_unlock(&prtd->lock);
 			break;
 		case ASM_STREAM_CMD_FLUSH:
-			pr_debug("ASM_STREAM_CMD_FLUSH\n");
+			pr_debug("%s: ASM_STREAM_CMD_FLUSH:", __func__);
+			pr_debug("token 0x%x, stream id %d\n", token,
+				  STREAM_ID_FROM_TOKEN(token));
 			prtd->cmd_ack = 1;
-			wake_up(&prtd->flush_wait);
+			break;
+		case ASM_DATA_CMD_REMOVE_INITIAL_SILENCE:
+			pr_debug("%s: ASM_DATA_CMD_REMOVE_INITIAL_SILENCE:",
+				   __func__);
+			pr_debug("token 0x%x, stream id = %d\n", token,
+				  STREAM_ID_FROM_TOKEN(token));
+			break;
+		case ASM_DATA_CMD_REMOVE_TRAILING_SILENCE:
+			pr_debug("%s: ASM_DATA_CMD_REMOVE_TRAILING_SILENCE:",
+				  __func__);
+			pr_debug("token = 0x%x,	stream id = %d\n", token,
+				  STREAM_ID_FROM_TOKEN(token));
+			break;
+		case ASM_STREAM_CMD_CLOSE:
+			pr_debug("%s: ASM_DATA_CMD_CLOSE:", __func__);
+			pr_debug("token 0x%x, stream id %d\n", token,
+				  STREAM_ID_FROM_TOKEN(token));
+			/*
+			 * wakeup wait for stream avail on stream 3
+			 * after stream 1 ends.
+			 */
+			if (prtd->next_stream) {
+				pr_debug("%s:CLOSE:wakeup wait for stream\n",
+					  __func__);
+				prtd->stream_available = 1;
+				wake_up(&prtd->wait_for_stream_avail);
+				prtd->next_stream = 0;
+			}
+			if (atomic_read(&prtd->close) &&
+			    atomic_read(&prtd->wait_on_close)) {
+				prtd->cmd_ack = 1;
+				wake_up(&prtd->close_wait);
+			}
+			atomic_set(&prtd->close, 0);
 			break;
 		default:
 			break;
@@ -556,7 +592,8 @@ static int msm_compr_open(struct snd_compr_stream *cstream)
 
 	init_waitqueue_head(&prtd->eos_wait);
 	init_waitqueue_head(&prtd->drain_wait);
-	init_waitqueue_head(&prtd->flush_wait);
+	init_waitqueue_head(&prtd->close_wait);
+	init_waitqueue_head(&prtd->wait_for_stream_avail);
 
 	runtime->private_data = prtd;
 	populate_codec_list(prtd);
@@ -780,28 +817,30 @@ static int msm_compr_trigger(struct snd_compr_stream *cstream, int cmd)
 			prtd->cmd_interrupt = 1;
 			prtd->drain_ready = 1;
 			wake_up(&prtd->drain_wait);
-			wake_up(&prtd->eos_wait);
-			atomic_set(&prtd->eos, 0);
+			atomic_set(&prtd->drain, 0);
 		}
-
-		pr_debug("issue CMD_FLUSH \n");
+		prtd->last_buffer = 0;
 		prtd->cmd_ack = 0;
-		spin_unlock_irqrestore(&prtd->lock, flags);
-		rc = q6asm_cmd(prtd->audio_client, CMD_FLUSH);
-		if (rc < 0) {
-			pr_err("%s: flush cmd failed rc=%d\n",
-			       __func__, rc);
-			return rc;
+		if (!prtd->gapless_state.gapless_transition) {
+			pr_debug("issue CMD_FLUSH stream_id %d\n", stream_id);
+			spin_unlock_irqrestore(&prtd->lock, flags);
+			rc = q6asm_stream_cmd(
+				prtd->audio_client, CMD_FLUSH, stream_id);
+			if (rc < 0) {
+				pr_err("%s: flush cmd failed rc=%d\n",
+							__func__, rc);
+				return rc;
+			}
+			if (!rc) {
+				rc = -ETIMEDOUT;
+				pr_err("Flush cmd timeout\n");
+			} else {
+				rc = 0; /* prtd->cmd_status == OK? 0 : -EPERM*/
+			}
+			spin_lock_irqsave(&prtd->lock, flags);
+		} else {
+			prtd->first_buffer = 0;
 		}
-		rc = wait_event_timeout(prtd->flush_wait,
-					prtd->cmd_ack, 1 * HZ);
-		if (!rc) {
-			rc = -ETIMEDOUT;
-			pr_err("Flush cmd timeout\n");
-		} else
-			rc = 0; /* prtd->cmd_status == OK? 0 : -EPERM */
-
-		spin_lock_irqsave(&prtd->lock, flags);
 		/* FIXME. only reset if flush was successful */
 		prtd->byte_offset  = 0;
 		prtd->copied_total = 0;
