@@ -90,9 +90,6 @@ static int mmss_cc_n_default;
 static int mmss_cc_d_max;
 static int mmss_cc_d_half;
 
-#define PRE_FORCE_DEF	128
-static int previous_nForce = PRE_FORCE_DEF;
-
 /*IMMVIBESPIAPI*/ VibeStatus ImmVibeSPI_ForceOut_AmpDisable(VibeUInt8 nActuatorIndex);
 
 struct timed_vibrator_data {
@@ -462,7 +459,6 @@ static int vibrator_ic_enable_set(int enable, struct timed_vibrator_data *vib_da
 		}
 
 		g_bAmpEnabled = false;
-		previous_nForce = 0;
     }
 
     return VIBE_S_SUCCESS;
@@ -477,17 +473,18 @@ EXPORT_SYMBOL(ImmVibeSPI_ForceOut_AmpDisable);
 	printk("%s : g_bAmpEnabled:%d\n", __func__, g_bAmpEnabled);
     if (!g_bAmpEnabled)
     {
-        DbgOut((KERN_DEBUG "ImmVibeSPI_ForceOut_AmpEnable.\n"));
+		if(sm100_flag) {
+			if (atomic_read(&vib.gp1_clk_flag) == 0) {
+				clk_prepare_enable(cam_gp1_clk);
+				atomic_set(&vib.gp1_clk_flag, 1);
+			}
 
-        vibrator_power_set(1, &vib);
-	udelay(100);
-        //vibrator_pwm_set(1, 0, GP_CLK_N_DEFAULT);
+			sm100_power_set(1, &vib);
+			//sm100_pwm_set(1, 0); //MSM GP CLK update bit issue.
+			sm100_ic_enable_set(1, &vib);
 
+		}
         g_bAmpEnabled = true;
-#if defined(CONFIG_MACH_MSM8974_VU3_KR)||defined(CONFIG_MACH_MSM8974_Z_KR)||defined(CONFIG_MACH_MSM8974_Z_SPR)||defined(CONFIG_MACH_MSM8974_Z_TMO_US)||defined(CONFIG_MACH_MSM8974_Z_ATT_US)||defined(CONFIG_MACH_MSM8974_Z_KDDI)||defined(CONFIG_MACH_MSM8974_Z_OPEN_COM)
-		previous_nForce=0xFFFF;
-#endif
-
     }
 
     return VIBE_S_SUCCESS;
@@ -612,16 +609,18 @@ IMMVIBESPIAPI VibeStatus ImmVibeSPI_ForceOut_SetSamples(VibeUInt8 nActuatorIndex
             /* Unexpected bit depth */
             return VIBE_E_FAIL;
     }
-#if defined(CONFIG_MACH_MSM8974_VU3_KR) || defined(CONFIG_MACH_MSM8974_Z_KR)||defined(CONFIG_MACH_MSM8974_Z_SPR)||defined(CONFIG_MACH_MSM8974_Z_TMO_US)||defined(CONFIG_MACH_MSM8974_Z_ATT_US)||defined(CONFIG_MACH_MSM8974_Z_KDDI)||defined(CONFIG_MACH_MSM8974_Z_OPEN_COM)
-	if(nForce==previous_nForce)
-		return VIBE_S_SUCCESS;
-	previous_nForce=nForce;
-#endif
-    if (nForce == 0)
-    {
-        //vibrator_pwm_set(1, 0, GP_CLK_N_DEFAULT);
-        ImmVibeSPI_ForceOut_AmpDisable(nActuatorIndex);
 
+	if(IMMR_DEB)
+		printk("[IMMR] Force set = %d\n", nForce);
+
+	// nForce range: SM100: -127~127,  PMIC:0~127
+    if (nForce <= 0)
+    {      
+		if(sm100_flag && nForce < 0)
+		{
+			sm100_pwm_set(1, nForce); //MSM GP CLK update bit issue.
+		}
+	    else ImmVibeSPI_ForceOut_AmpDisable(nActuatorIndex);
     }
     else
     {
