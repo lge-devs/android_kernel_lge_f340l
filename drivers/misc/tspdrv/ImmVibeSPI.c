@@ -90,6 +90,9 @@ static int mmss_cc_n_default;
 static int mmss_cc_d_max;
 static int mmss_cc_d_half;
 
+#define PRE_FORCE_DEF	128
+static int previous_nForce = PRE_FORCE_DEF;
+
 /*IMMVIBESPIAPI*/ VibeStatus ImmVibeSPI_ForceOut_AmpDisable(VibeUInt8 nActuatorIndex);
 
 struct timed_vibrator_data {
@@ -459,6 +462,7 @@ static int vibrator_ic_enable_set(int enable, struct timed_vibrator_data *vib_da
 		}
 
 		g_bAmpEnabled = false;
+		previous_nForce = 0;
     }
 
     return VIBE_S_SUCCESS;
@@ -485,6 +489,7 @@ EXPORT_SYMBOL(ImmVibeSPI_ForceOut_AmpDisable);
 
 		}
         g_bAmpEnabled = true;
+	 previous_nForce = PRE_FORCE_DEF;
     }
 
     return VIBE_S_SUCCESS;
@@ -609,6 +614,11 @@ IMMVIBESPIAPI VibeStatus ImmVibeSPI_ForceOut_SetSamples(VibeUInt8 nActuatorIndex
             /* Unexpected bit depth */
             return VIBE_E_FAIL;
     }
+
+	if(nForce == previous_nForce)
+		return VIBE_S_SUCCESS;
+
+	previous_nForce = nForce;
 
 	if(IMMR_DEB)
 		printk("[IMMR] Force set = %d\n", nForce);
