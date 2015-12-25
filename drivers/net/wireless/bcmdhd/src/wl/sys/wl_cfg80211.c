@@ -10082,16 +10082,19 @@ static s32 wl_notify_escan_complete(struct wl_priv *wl,
 	struct net_device *dev;
 
 	WL_DBG(("Enter \n"));
+
+	mutex_lock(&cfg->scan_complete);
+
 	if (!ndev) {
 		WL_ERR(("ndev is null\n"));
 		err = BCME_ERROR;
-		return err;
+		goto out;
 	}
 
-	if (wl->escan_info.ndev != ndev) {
-		WL_ERR(("ndev is different %p %p\n", wl->escan_info.ndev, ndev));
+	if (cfg->escan_info.ndev != ndev) {
+		WL_ERR(("ndev is different %p %p\n", cfg->escan_info.ndev, ndev));
 		err = BCME_ERROR;
-		return err;
+		goto out;
 	}
 
 	if (wl->scan_request) {
@@ -10129,14 +10132,17 @@ static s32 wl_notify_escan_complete(struct wl_priv *wl,
 		wl->sched_scan_req = NULL;
 	}
 #endif /* WL_SCHED_SCAN */
-	if (likely(wl->scan_request)) {
-		cfg80211_scan_done(wl->scan_request, aborted);
-		wl->scan_request = NULL;
+	if (likely(cfg->scan_request)) {
+		cfg80211_scan_done(cfg->scan_request, aborted);
+		cfg->scan_request = NULL;
 	}
-	if (p2p_is_on(wl))
-		wl_clr_p2p_status(wl, SCANNING);
-	wl_clr_drv_status(wl, SCANNING, dev);
-	spin_unlock_irqrestore(&wl->cfgdrv_lock, flags);
+	if (p2p_is_on(cfg))
+		wl_clr_p2p_status(cfg, SCANNING);
+	wl_clr_drv_status(cfg, SCANNING, dev);
+	spin_unlock_irqrestore(&cfg->cfgdrv_lock, flags);
+
+out:
+	mutex_unlock(&cfg->scan_complete);
 	return err;
 }
 
@@ -10719,12 +10725,13 @@ static s32 wl_init_priv(struct wl_priv *wl)
 	err = wl_init_priv_mem(wl);
 	if (err)
 		return err;
-	if (wl_create_event_handler(wl))
+	if (wl_create_event_handler(cfg))
 		return -ENOMEM;
-	wl_init_event_handler(wl);
-	mutex_init(&wl->usr_sync);
-	mutex_init(&wl->event_sync);
-	err = wl_init_scan(wl);
+	wl_init_event_handler(cfg);
+	mutex_init(&cfg->usr_sync);
+	mutex_init(&cfg->event_sync);
+	mutex_init(&cfg->scan_complete);
+	err = wl_init_scan(cfg);
 	if (err)
 		return err;
 	wl_init_conf(wl->conf);
