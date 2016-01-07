@@ -307,7 +307,6 @@ struct mdss_ad_info {
 	u32 last_bl;
 	u32 bl_data;
 	u32 calc_itr;
-	uint32_t bl_bright_shift;
 	uint32_t bl_lin[AD_BL_LIN_LEN];
 	uint32_t bl_lin_inv[AD_BL_LIN_LEN];
 };
@@ -549,7 +548,10 @@ int mdss_mdp_csc_setup_data(u32 block, u32 blk_idx, u32 tbl_idx,
 
 int mdss_mdp_pp_init(struct device *dev);
 void mdss_mdp_pp_term(struct device *dev);
+int mdss_mdp_pp_overlay_init(struct msm_fb_data_type *mfd);
+
 int mdss_mdp_pp_resume(struct mdss_mdp_ctl *ctl, u32 mixer_num);
+
 int mdss_mdp_pp_setup(struct mdss_mdp_ctl *ctl);
 int mdss_mdp_pp_setup_locked(struct mdss_mdp_ctl *ctl);
 int mdss_mdp_pipe_pp_setup(struct mdss_mdp_pipe *pipe, u32 *op);

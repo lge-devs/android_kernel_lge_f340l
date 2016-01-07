@@ -692,6 +692,7 @@ static int mdss_fb_probe(struct platform_device *pdev)
 	mfd->bl_level = 0;
 	mfd->bl_scale = 1024;
 	mfd->bl_min_lvl = 30;
+	mfd->ad_bl_level = 0;
 	mfd->fb_imgType = MDP_RGBA_8888;
 
 	mfd->pdev = pdev;
@@ -1051,15 +1052,9 @@ static void mdss_fb_chargerlogo_backlight(struct msm_fb_data_type *mfd, u32 bkl_
 void mdss_fb_set_backlight(struct msm_fb_data_type *mfd, u32 bkl_lvl)
 {
 	struct mdss_panel_data *pdata;
-	int (*update_ad_input)(struct msm_fb_data_type *mfd);
-	u32 temp = bkl_lvl;
-
-#if defined(CONFIG_MACH_LGE)
-	if (bl_chargerlogo) {
-		mdss_fb_chargerlogo_backlight(mfd, bkl_lvl);
-		return;
-	}
-#endif
+	u32 temp = bkl_lvl, ad_bl;
+	int ret = -EINVAL;
+	bool bl_notify_needed = false;
 
 	if (((!mfd->panel_power_on && mfd->dcm_state != DCM_ENTER)
 		|| !mfd->bl_updated) && !IS_CALIB_MODE_BL(mfd)) {
@@ -1072,9 +1067,20 @@ void mdss_fb_set_backlight(struct msm_fb_data_type *mfd, u32 bkl_lvl)
 	pdata = dev_get_platdata(&mfd->pdev->dev);
 
 	if ((pdata) && (pdata->set_backlight)) {
-#if defined(CONFIG_MACH_LGE)
-			if (temp != -BOOT_BRIGHTNESS)
-#endif
+		if (mfd->mdp.ad_calc_bl) {
+			if (mfd->ad_bl_level == 0)
+				mfd->ad_bl_level = temp;
+			ad_bl = mfd->ad_bl_level;
+			ret = (*mfd->mdp.ad_calc_bl)(mfd, temp, &temp, &ad_bl);
+			if ((!ret) && (mfd->ad_bl_level != ad_bl) &&
+					mfd->mdp.ad_invalidate_input) {
+				mfd->ad_bl_level = ad_bl;
+				(*mfd->mdp.ad_invalidate_input)(mfd);
+				bl_notify_needed = true;
+			}
+		}
+
+		mfd->bl_level_prev_scaled = mfd->bl_level_scaled;
 		if (!IS_CALIB_MODE_BL(mfd))
 			mdss_fb_scale_bl(mfd, &temp);
 		/*
@@ -1085,37 +1091,55 @@ void mdss_fb_set_backlight(struct msm_fb_data_type *mfd, u32 bkl_lvl)
 		 * as well as setting bl_level to bkl_lvl even though the
 		 * backlight has been set to the scaled value.
 		 */
-		if (mfd->bl_level_old == temp) {
-			mfd->bl_level = bkl_lvl;
-			return;
-		}
-		pdata->set_backlight(pdata, temp);
-		mfd->bl_level = bkl_lvl;
-		mfd->bl_level_old = temp;
 
-		if (mfd->mdp.update_ad_input) {
-			update_ad_input = mfd->mdp.update_ad_input;
-			mutex_unlock(&mfd->bl_lock);
-			/* Will trigger ad_setup which will grab bl_lock */
-			update_ad_input(mfd);
-			mutex_lock(&mfd->bl_lock);
+		if (mfd->bl_level_scaled == temp) {
+			mfd->bl_level = bkl_lvl;
+#ifdef CONFIG_MACH_MSM8974_G2
+			if (mfd->bl_level != 0)
+				return;
+#endif
+		} else {
+			pr_debug("backlight sent to panel :%d\n", temp);
+			pdata->set_backlight(pdata, temp);
+			mfd->bl_level = bkl_lvl;
+			mfd->bl_level_scaled = temp;
+			bl_notify_needed = true;
 		}
+		if (bl_notify_needed)
+			mdss_fb_bl_update_notify(mfd);
 	}
 }
 
 void mdss_fb_update_backlight(struct msm_fb_data_type *mfd)
 {
 	struct mdss_panel_data *pdata;
+	int ret = 0;
+	u32 temp;
+	u32 ad_bl;
 
+	mutex_lock(&mfd->bl_lock);
 	if (mfd->unset_bl_level && !mfd->bl_updated) {
 		pdata = dev_get_platdata(&mfd->pdev->dev);
 		if ((pdata) && (pdata->set_backlight)) {
-			mutex_lock(&mfd->bl_lock);
 			mfd->bl_level = mfd->unset_bl_level;
-			pdata->set_backlight(pdata, mfd->bl_level);
-			mfd->bl_level_old = mfd->unset_bl_level;
-			mutex_unlock(&mfd->bl_lock);
+			temp = mfd->bl_level;
+			if (mfd->mdp.ad_calc_bl) {
+				if (mfd->ad_bl_level == 0)
+					mfd->ad_bl_level = temp;
+				ad_bl = mfd->ad_bl_level;
+				ret = (*mfd->mdp.ad_calc_bl)(mfd, temp, &temp,
+						&ad_bl);
+				if ((!ret) && (mfd->ad_bl_level != ad_bl) &&
+						mfd->mdp.ad_invalidate_input) {
+					mfd->ad_bl_level = ad_bl;
+					(*mfd->mdp.ad_invalidate_input)(mfd);
+				}
+
+			}
+			pdata->set_backlight(pdata, temp);
+			mfd->bl_level_scaled = mfd->unset_bl_level;
 			mfd->bl_updated = 1;
+			mdss_fb_bl_update_notify(mfd);
 		}
 	}
 }
