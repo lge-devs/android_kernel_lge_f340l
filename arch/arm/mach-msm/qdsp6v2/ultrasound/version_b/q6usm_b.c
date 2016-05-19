@@ -209,8 +209,9 @@ int q6usm_us_client_buf_free(unsigned int dir,
 		return 0;
 	}
 
-	rc = q6usm_memory_unmap(usc, port->phys, dir);
-	pr_debug("%s: data[%p]phys[%p][%p]\n", __func__,
+	rc = q6usm_memory_unmap(port->phys, dir, usc->session,
+				*((uint32_t *)port->ext));
+	pr_debug("%s: data[%pK]phys[%pK][%pK]\n", __func__,
 		 (void *)port->data, (void *)port->phys, (void *)&port->phys);
 	/* 4K boundary is required by the API with QDSP6 */
 	size = (port->buf_size * port->buf_cnt + MEM_4K_OFFSET) & MEM_4K_MASK;
@@ -219,6 +220,45 @@ int q6usm_us_client_buf_free(unsigned int dir,
 	port->phys = 0;
 	port->buf_size = 0;
 	port->buf_cnt = 0;
+
+	mutex_unlock(&usc->cmd_lock);
+	return rc;
+}
+
+int q6usm_us_param_buf_free(unsigned int dir,
+			struct us_client *usc)
+{
+	struct us_port_data *port;
+	int rc = 0;
+	uint32_t size = 0;
+
+	if ((usc == NULL) ||
+		((dir != IN) && (dir != OUT)))
+		return -EINVAL;
+
+	mutex_lock(&usc->cmd_lock);
+	port = &usc->port[dir];
+	if (port == NULL) {
+		mutex_unlock(&usc->cmd_lock);
+		return -EINVAL;
+	}
+
+	if (port->param_buf == NULL) {
+		mutex_unlock(&usc->cmd_lock);
+		return 0;
+	}
+
+	rc = q6usm_memory_unmap(port->param_phys, dir, usc->session,
+				*((uint32_t *)port->param_buf_mem_handle));
+	pr_debug("%s: data[%pK]phys[%pK][%pK]\n", __func__,
+		 (void *)port->param_buf, (void *)port->param_phys,
+		 (void *)&port->param_phys);
+	/* 4K boundary is required by the API with QDSP6 */
+	size = (port->param_buf_size + MEM_4K_OFFSET) & MEM_4K_MASK;
+	dma_free_coherent(NULL, size, port->param_buf, port->param_phys);
+	port->param_buf = NULL;
+	port->param_phys = 0;
+	port->param_buf_size = 0;
 
 	mutex_unlock(&usc->cmd_lock);
 	return rc;
@@ -320,7 +360,8 @@ struct us_client *q6usm_us_client_alloc(
 		mutex_init(&usc->port[lcnt].lock);
 		spin_lock_init(&usc->port[lcnt].dsp_lock);
 		usc->port[lcnt].ext = (void *)p_mem_handle++;
-		pr_err("%s: usc->port[%d].ext=%p;\n",
+		usc->port[lcnt].param_buf_mem_handle = (void *)p_mem_handle++;
+		pr_err("%s: usc->port[%d].ext=%pK;\n",
 		       __func__, lcnt, usc->port[lcnt].ext);
 	}
 	atomic_set(&usc->cmd_state, 0);
@@ -366,7 +407,7 @@ int q6usm_us_client_buf_alloc(unsigned int dir,
 
 	port->buf_cnt = bufcnt;
 	port->buf_size = bufsz;
-	pr_debug("%s: data[%p]; phys[%p]; [%p]\n", __func__,
+	pr_debug("%s: data[%pK]; phys[%pK]; [%pK]\n", __func__,
 		 (void *)port->data,
 		 (void *)port->phys,
 		 (void *)&port->phys);
@@ -377,6 +418,65 @@ int q6usm_us_client_buf_alloc(unsigned int dir,
 		pr_err("%s: CMD Memory_map failed\n", __func__);
 		mutex_unlock(&usc->cmd_lock);
 		q6usm_us_client_buf_free(dir, usc);
+		q6usm_us_param_buf_free(dir, usc);
+	} else {
+		mutex_unlock(&usc->cmd_lock);
+		rc = 0;
+	}
+
+	return rc;
+}
+
+int q6usm_us_param_buf_alloc(unsigned int dir,
+			struct us_client *usc,
+			unsigned int bufsz)
+{
+	int rc = 0;
+	struct us_port_data *port = NULL;
+	unsigned int size = 0;
+
+	if ((usc == NULL) ||
+		((dir != IN) && (dir != OUT)) ||
+		(usc->session <= 0 || usc->session > SESSION_MAX)) {
+		pr_err("%s: wrong parameters: direction=%d, bufsz=%d\n",
+			__func__, dir, bufsz);
+		return -EINVAL;
+	}
+
+	mutex_lock(&usc->cmd_lock);
+
+	port = &usc->port[dir];
+
+	if (bufsz == 0) {
+		pr_debug("%s: bufsz=0, get/set param commands are forbidden\n",
+			__func__);
+		port->param_buf = NULL;
+		mutex_unlock(&usc->cmd_lock);
+		return rc;
+	}
+
+	port->param_buf = dma_alloc_coherent(NULL, bufsz,
+					&(port->param_phys), GFP_KERNEL);
+	if (port->param_buf == NULL) {
+		pr_err("%s: Parameter buffer allocation failed\n", __func__);
+		mutex_unlock(&usc->cmd_lock);
+		return -ENOMEM;
+	}
+
+	port->param_buf_size = bufsz;
+	pr_debug("%s: param_buf[%pK]; param_phys[%pK]; [%pK]\n", __func__,
+		 (void *)port->param_buf,
+		 (void *)port->param_phys,
+		 (void *)&port->param_phys);
+
+	size = (bufsz + MEM_4K_OFFSET) & MEM_4K_MASK;
+	rc = q6usm_memory_map(port->param_phys, (IN | OUT), size, 1,
+			usc->session, (uint32_t *)port->param_buf_mem_handle);
+	if (rc < 0) {
+		pr_err("%s: CMD Memory_map failed\n", __func__);
+		mutex_unlock(&usc->cmd_lock);
+		q6usm_us_client_buf_free(dir, usc);
+		q6usm_us_param_buf_free(dir, usc);
 	} else {
 		mutex_unlock(&usc->cmd_lock);
 		rc = 0;
@@ -1181,7 +1281,7 @@ int q6usm_set_us_detection(struct us_client *usc,
 	if ((usc == NULL) ||
 	    (detect_info_size == 0) ||
 	    (detect_info == NULL)) {
-		pr_err("%s: wrong input: usc=0x%p, inf_size=%d; info=0x%p",
+		pr_err("%s: wrong input: usc=0x%pK, inf_size=%d; info=0x%pK",
 		       __func__,
 		       usc,
 		       detect_info_size,
