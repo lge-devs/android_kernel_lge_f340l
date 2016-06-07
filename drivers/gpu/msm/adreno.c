@@ -610,17 +610,17 @@ int adreno_perfcounter_query_group(struct adreno_device *adreno_dev,
 	 * if NULL countable or *count of zero, return max reg_count in
 	 * *max_counters and return success
 	 */
-	if (countables == NULL || count == 0)
+	if (countables == NULL || count == 0) {
+		kgsl_mutex_unlock(&device->mutex, &device->mutex_owner);
 		return 0;
+	}
 
-	/*
-	 * Go through all available counters.  Write upto *count * countable
-	 * values.
-	 */
-	for (i = 0; i < group->reg_count && i < count; i++) {
-		if (copy_to_user(&countables[i], &(group->regs[i].countable),
-				sizeof(unsigned int)) != 0)
-			return -EFAULT;
+	t = min_t(unsigned int, group->reg_count, count);
+
+	buf = kmalloc(t * sizeof(unsigned int), GFP_KERNEL);
+	if (buf == NULL) {
+		kgsl_mutex_unlock(&device->mutex, &device->mutex_owner);
+		return -ENOMEM;
 	}
 
 	return 0;
