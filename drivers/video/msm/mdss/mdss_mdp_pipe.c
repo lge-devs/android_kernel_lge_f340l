@@ -618,7 +618,63 @@ static int mdss_mdp_pipe_free(struct mdss_mdp_pipe *pipe)
 	pipe->bwc_mode = 0;
 	mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF, false);
 
-	return 0;
+	return is_idle;
+}
+
+/**
+ * mdss_mdp_pipe_fetch_halt() - Halt VBIF client corresponding to specified pipe
+ * @pipe: pointer to the pipe data structure which needs to be halted.
+ *
+ * Check if VBIF client corresponding to specified pipe is idle or not. If not
+ * send a halt request for the client in question and wait for it be idle.
+ *
+ * This function would typically be called after pipe is unstaged or before it
+ * is initialized. On success it should be assumed that pipe is in idle state
+ * and would not fetch any more data. This function cannot be called from
+ * interrupt context.
+ */
+int mdss_mdp_pipe_fetch_halt(struct mdss_mdp_pipe *pipe)
+{
+	bool is_idle;
+	int rc = 0;
+	u32 reg_val, idle_mask, status;
+	struct mdss_data_type *mdata = mdss_mdp_get_mdata();
+
+	is_idle = mdss_mdp_is_pipe_idle(pipe, true);
+	if (!is_idle) {
+		pr_err("%pKS: pipe%d is not idle. xin_id=%d\n",
+			__builtin_return_address(0), pipe->num, pipe->xin_id);
+
+		mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON, false);
+		mutex_lock(&mdata->reg_lock);
+		idle_mask = BIT(pipe->xin_id + 16);
+
+		reg_val = readl_relaxed(mdata->vbif_base +
+			MMSS_VBIF_XIN_HALT_CTRL0);
+		writel_relaxed(reg_val | BIT(pipe->xin_id),
+			mdata->vbif_base + MMSS_VBIF_XIN_HALT_CTRL0);
+		mutex_unlock(&mdata->reg_lock);
+
+		rc = readl_poll_timeout(mdata->vbif_base +
+			MMSS_VBIF_XIN_HALT_CTRL1, status, (status & idle_mask),
+			1000, PIPE_HALT_TIMEOUT_US);
+		if (rc == -ETIMEDOUT)
+			pr_err("VBIF client %d not halting. TIMEDOUT.\n",
+				pipe->xin_id);
+		else
+			pr_debug("VBIF client %d is halted\n", pipe->xin_id);
+
+		mutex_lock(&mdata->reg_lock);
+		reg_val = readl_relaxed(mdata->vbif_base +
+			MMSS_VBIF_XIN_HALT_CTRL0);
+		writel_relaxed(reg_val & ~BIT(pipe->xin_id),
+			mdata->vbif_base + MMSS_VBIF_XIN_HALT_CTRL0);
+
+		mutex_unlock(&mdata->reg_lock);
+		mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF, false);
+	}
+
+	return rc;
 }
 
 int mdss_mdp_pipe_destroy(struct mdss_mdp_pipe *pipe)

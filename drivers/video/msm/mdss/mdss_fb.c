@@ -1366,7 +1366,7 @@ int mdss_fb_alloc_fb_ion_memory(struct msm_fb_data_type *mfd, size_t fb_size)
 		goto fb_mmap_failed;
 	}
 
-	pr_debug("alloc 0x%zuB vaddr = %p (%pa iova) for fb%d\n", fb_size,
+	pr_debug("alloc 0x%zuB vaddr = %pK (%pKa iova) for fb%d\n", fb_size,
 			vaddr, &mfd->iova, mfd->index);
 
 	mfd->fbi->screen_base = (char *) vaddr;
@@ -1459,7 +1459,7 @@ static int mdss_fb_fbmem_ion_mmap(struct fb_info *info,
 				vma->vm_page_prot =
 					pgprot_writecombine(vma->vm_page_prot);
 
-			pr_debug("vma=%p, addr=%x len=%ld",
+			pr_debug("vma=%pK, addr=%x len=%ld",
 					vma, (unsigned int)addr, len);
 			pr_cont("vm_start=%x vm_end=%x vm_page_prot=%ld\n",
 					(unsigned int)vma->vm_start,
@@ -1596,12 +1596,13 @@ static int mdss_fb_alloc_fbmem_iommu(struct msm_fb_data_type *mfd, int dom)
 		return -ENOMEM;
 	}
 
-	phys = memory_pool_node_paddr(virt);
-
-	msm_iommu_map_contig_buffer(phys, dom, 0, size, SZ_4K, 0,
+	rc = msm_iommu_map_contig_buffer(phys, dom, 0, size, SZ_4K, 0,
 					    &mfd->iova);
-	pr_info("allocating %u bytes at %p (%lx phys) for fb %d\n",
-		 size, virt, phys, mfd->index);
+	if (rc)
+		pr_warn("Cannot map fb_mem %pKa to IOMMU. rc=%d\n", &phys, rc);
+
+	pr_debug("alloc 0x%zxB @ (%pKa phys) (0x%pK virt) (%pKa iova) for fb%d\n",
+		 size, &phys, virt, &mfd->iova, mfd->index);
 
 #ifdef CONFIG_LGE_HANDLE_PANIC
 	/* save fb1 address for crash handler display buffer */
