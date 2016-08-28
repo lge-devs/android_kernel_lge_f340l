@@ -485,6 +485,67 @@ static int msm_isp_send_hw_cmd(struct vfe_device *vfe_dev,
 			pr_err("%s: VFE_WRITE: Invalid length\n", __func__);
 			return -EINVAL;
 		}
+		break;
+	}
+
+	case VFE_WRITE_DMI_16BIT:
+	case VFE_WRITE_DMI_32BIT:
+	case VFE_WRITE_DMI_64BIT:
+	case VFE_READ_DMI_16BIT:
+	case VFE_READ_DMI_32BIT:
+	case VFE_READ_DMI_64BIT: {
+		if (reg_cfg_cmd->cmd_type == VFE_WRITE_DMI_64BIT ||
+				reg_cfg_cmd->cmd_type == VFE_READ_DMI_64BIT) {
+			if ((reg_cfg_cmd->u.dmi_info.hi_tbl_offset <=
+				reg_cfg_cmd->u.dmi_info.lo_tbl_offset) ||
+				(reg_cfg_cmd->u.dmi_info.hi_tbl_offset -
+				reg_cfg_cmd->u.dmi_info.lo_tbl_offset !=
+				(sizeof(uint32_t)))) {
+				pr_err("%s:%d hi %d lo %d\n",
+					__func__, __LINE__,
+					reg_cfg_cmd->u.dmi_info.hi_tbl_offset,
+					reg_cfg_cmd->u.dmi_info.hi_tbl_offset);
+				return -EINVAL;
+			}
+			if (reg_cfg_cmd->u.dmi_info.len <= sizeof(uint32_t)) {
+				pr_err("%s:%d len %d\n",
+					__func__, __LINE__,
+					reg_cfg_cmd->u.dmi_info.len);
+				return -EINVAL;
+			}
+			if (((UINT_MAX -
+				reg_cfg_cmd->u.dmi_info.hi_tbl_offset) <
+				(reg_cfg_cmd->u.dmi_info.len -
+				sizeof(uint32_t))) ||
+				((reg_cfg_cmd->u.dmi_info.hi_tbl_offset +
+				reg_cfg_cmd->u.dmi_info.len -
+				sizeof(uint32_t)) > cmd_len)) {
+				pr_err("%s:%d hi_tbl_offset %d len %d cmd %d\n",
+					__func__, __LINE__,
+					reg_cfg_cmd->u.dmi_info.hi_tbl_offset,
+					reg_cfg_cmd->u.dmi_info.len, cmd_len);
+				return -EINVAL;
+			}
+		}
+		if ((reg_cfg_cmd->u.dmi_info.lo_tbl_offset >
+			(UINT_MAX - reg_cfg_cmd->u.dmi_info.len)) ||
+			((reg_cfg_cmd->u.dmi_info.lo_tbl_offset +
+			reg_cfg_cmd->u.dmi_info.len) > cmd_len)) {
+			pr_err("%s:%d lo_tbl_offset %d len %d cmd_len %d\n",
+				__func__, __LINE__,
+				reg_cfg_cmd->u.dmi_info.lo_tbl_offset,
+				reg_cfg_cmd->u.dmi_info.len, cmd_len);
+			return -EINVAL;
+		}
+		break;
+	}
+
+	default:
+		break;
+	}
+
+	switch (reg_cfg_cmd->cmd_type) {
+	case VFE_WRITE: {
 		msm_camera_io_memcpy(vfe_dev->vfe_base +
 			reg_cfg_cmd->u.rw_info.reg_offset,
 			cfg_data + reg_cfg_cmd->u.rw_info.cmd_data_offset/4,
