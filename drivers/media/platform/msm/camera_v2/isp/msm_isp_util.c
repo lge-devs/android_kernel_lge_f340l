@@ -299,6 +299,43 @@ int msm_isp_unsubscribe_event(struct v4l2_subdev *sd, struct v4l2_fh *fh,
 	return rc;
 }
 
+static int msm_isp_get_max_clk_rate(struct vfe_device *vfe_dev, long *rate)
+{
+	int           clk_idx = 0;
+	unsigned long max_value = ~0;
+	long          round_rate = 0;
+
+	if (!vfe_dev || !rate) {
+		pr_err("%s:%d failed: vfe_dev %pK rate %pK\n", __func__, __LINE__,
+			vfe_dev, rate);
+		return -EINVAL;
+	}
+
+	*rate = 0;
+	if (!vfe_dev->hw_info) {
+		pr_err("%s:%d failed: vfe_dev->hw_info %pK\n", __func__,
+			__LINE__, vfe_dev->hw_info);
+		return -EINVAL;
+	}
+
+	clk_idx = vfe_dev->hw_info->vfe_clk_idx;
+	if (clk_idx >= ARRAY_SIZE(vfe_dev->vfe_clk)) {
+		pr_err("%s:%d failed: clk_idx %d max array size %d\n",
+			__func__, __LINE__, clk_idx,
+			ARRAY_SIZE(vfe_dev->vfe_clk));
+		return -EINVAL;
+	}
+
+	round_rate = clk_round_rate(vfe_dev->vfe_clk[clk_idx], max_value);
+	if (round_rate < 0) {
+		pr_err("%s: Invalid vfe clock rate\n", __func__);
+		return -EINVAL;
+	}
+
+	*rate = round_rate;
+	return 0;
+}
+
 static int msm_isp_set_clk_rate(struct vfe_device *vfe_dev, long *rate)
 {
 	int rc = 0;
@@ -477,12 +514,45 @@ static int msm_isp_send_hw_cmd(struct vfe_device *vfe_dev,
 	struct msm_vfe_reg_cfg_cmd *reg_cfg_cmd,
 	uint32_t *cfg_data, uint32_t cmd_len)
 {
+	if (!vfe_dev || !reg_cfg_cmd) {
+		pr_err("%s:%d failed: vfe_dev %pK reg_cfg_cmd %pK\n", __func__,
+			__LINE__, vfe_dev, reg_cfg_cmd);
+		return -EINVAL;
+	}
+	if ((reg_cfg_cmd->cmd_type != VFE_CFG_MASK) &&
+		(!cfg_data || !cmd_len)) {
+		pr_err("%s:%d failed: cmd type %d cfg_data %pK cmd_len %d\n",
+			__func__, __LINE__, reg_cfg_cmd->cmd_type, cfg_data,
+			cmd_len);
+		return -EINVAL;
+	}
+
+	/* Validate input parameters */
 	switch (reg_cfg_cmd->cmd_type) {
-	case VFE_WRITE: {
-		if (resource_size(vfe_dev->vfe_mem) <
-			(reg_cfg_cmd->u.rw_info.reg_offset +
-			reg_cfg_cmd->u.rw_info.len)) {
-			pr_err("%s: VFE_WRITE: Invalid length\n", __func__);
+	case VFE_WRITE:
+	case VFE_READ:
+	case VFE_WRITE_MB: {
+		if ((reg_cfg_cmd->u.rw_info.reg_offset >
+			(UINT_MAX - reg_cfg_cmd->u.rw_info.len)) ||
+			((reg_cfg_cmd->u.rw_info.reg_offset +
+			reg_cfg_cmd->u.rw_info.len) >
+			resource_size(vfe_dev->vfe_mem))) {
+			pr_err("%s:%d reg_offset %d len %d res %d\n",
+				__func__, __LINE__,
+				reg_cfg_cmd->u.rw_info.reg_offset,
+				reg_cfg_cmd->u.rw_info.len,
+				(uint32_t)resource_size(vfe_dev->vfe_mem));
+			return -EINVAL;
+		}
+
+		if ((reg_cfg_cmd->u.rw_info.cmd_data_offset >
+			(UINT_MAX - reg_cfg_cmd->u.rw_info.len)) ||
+			((reg_cfg_cmd->u.rw_info.cmd_data_offset +
+			reg_cfg_cmd->u.rw_info.len) > cmd_len)) {
+			pr_err("%s:%d cmd_data_offset %d len %d cmd_len %d\n",
+				__func__, __LINE__,
+				reg_cfg_cmd->u.rw_info.cmd_data_offset,
+				reg_cfg_cmd->u.rw_info.len, cmd_len);
 			return -EINVAL;
 		}
 		break;
