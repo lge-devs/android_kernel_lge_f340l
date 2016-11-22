@@ -619,6 +619,7 @@ static int qseecom_load_app(struct qseecom_dev_handle *data, void __user *argp)
 	struct qseecom_command_scm_resp resp;
 	struct qseecom_check_app_ireq req;
 	struct qseecom_load_app_ireq load_req;
+	bool first_time = false;
 
 	/* Copy the relevant information needed for loading the image */
 	if (copy_from_user(&load_img_req,
@@ -655,7 +656,9 @@ static int qseecom_load_app(struct qseecom_dev_handle *data, void __user *argp)
 		}
 		spin_unlock_irqrestore(
 		&qseecom.registered_app_list_lock, flags);
+		ret = 0;
 	} else {
+		first_time = true;
 		pr_warn("App (%s) does'nt exist, loading apps for first time\n",
 			(char *)(load_img_req.img_name));
 		/* Get the handle of the shared fd */
@@ -751,12 +754,26 @@ static int qseecom_load_app(struct qseecom_dev_handle *data, void __user *argp)
 	load_img_req.app_id = app_id;
 	if (copy_to_user(argp, &load_img_req, sizeof(load_img_req))) {
 		pr_err("copy_to_user failed\n");
-		kzfree(entry);
-		qsee_disable_clock_vote(data, CLK_SFPB);
-		return -EFAULT;
+		ret = -EFAULT;
+		if (first_time == true) {
+			spin_lock_irqsave(
+				&qseecom.registered_app_list_lock, flags);
+			list_del(&entry->list);
+			spin_unlock_irqrestore(
+				&qseecom.registered_app_list_lock, flags);
+			kzfree(entry);
+		}
 	}
-	qsee_disable_clock_vote(data, CLK_SFPB);
-	return 0;
+
+loadapp_err:
+	__qseecom_disable_clk_scale_down(data);
+enable_clk_err:
+	if (qseecom.support_bus_scaling) {
+		mutex_lock(&qsee_bw_mutex);
+		qseecom_unregister_bus_bandwidth_needs(data);
+		mutex_unlock(&qsee_bw_mutex);
+	}
+	return ret;
 }
 
 static int __qseecom_cleanup_app(struct qseecom_dev_handle *data)
