@@ -1557,11 +1557,14 @@ static ssize_t __ref store_cc_enabled(struct kobject *kobj,
 
 	core_control_enabled = !!val;
 	if (core_control_enabled) {
-		pr_info("%s: Core control enabled\n", KBUILD_MODNAME);
+		pr_debug("Core control enabled\n");
 		register_cpu_notifier(&msm_thermal_cpu_notifier);
-		update_offline_cores(cpus_offlined);
+		if (hotplug_task)
+			complete(&hotplug_notify_complete);
+		else
+			pr_err("Hotplug task is not initialized\n");
 	} else {
-		pr_info("%s: Core control disabled\n", KBUILD_MODNAME);
+		pr_debug("Core control disabled\n");
 		unregister_cpu_notifier(&msm_thermal_cpu_notifier);
 	}
 
