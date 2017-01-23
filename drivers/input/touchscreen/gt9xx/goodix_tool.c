@@ -1,7 +1,7 @@
 /* drivers/input/touchscreen/goodix_tool.c
  *
  * 2010 - 2012 Goodix Technology.
- * Copyright (c) 2013, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,7 +32,7 @@ static char procname[20] = {0};
 
 #pragma pack(1)
 struct {
-	u8  wr;		/* write read flag£¬0:R  1:W  2:PID 3: */
+	u8  wr;		/* write read flagÂ£Â¬0:R  1:W  2:PID 3: */
 	u8  flag;	/* 0:no need flag/int 1: need flag  2:need int */
 	u8 flag_addr[2];/* flag address */
 	u8  flag_val;	/* flag val */
@@ -335,8 +335,7 @@ static s32 goodix_tool_write(struct file *filp, const char __user *buff,
 						unsigned long len, void *data)
 {
 	s32 ret = 0;
-	GTP_DEBUG_FUNC();
-	GTP_DEBUG_ARRAY((u8 *)buff, len);
+	u8 *dataptr = NULL;
 
 	mutex_lock(&lock);
 	ret = copy_from_user(&cmd_head, buff, CMD_HEAD_LENGTH);
@@ -503,6 +502,11 @@ static s32 goodix_tool_write(struct file *filp, const char __user *buff,
 	ret = CMD_HEAD_LENGTH;
 
 exit:
+	dataptr = cmd_head.data;
+	memset(&cmd_head, 0, sizeof(cmd_head));
+	cmd_head.wr = 0xFF;
+	cmd_head.data = dataptr;
+
 	mutex_unlock(&lock);
 	return ret;
 }
