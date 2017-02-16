@@ -225,20 +225,8 @@ static void lm3630_set_main_current_level(struct i2c_client *client, int level)
 
 	mutex_unlock(&dev->bl_mutex);
 
-	#ifdef CONFIG_MACH_MSM8974_VU3_KR
-		pr_info("[LCD][DEBUG] %s : backlight level=%d, cal_value=%d\n",
+	pr_debug("%s : backlight level=%d, cal_value=%d \n",
 				__func__, level, cal_value);
-	#elif defined(CONFIG_B1_LGD_PANEL)
-		{
-			char task_comm[TASK_COMM_LEN];
-			pr_info("[LCD][DEBUG] %s : backlight level=%d, cal_value=%d  PID:%d  name: %s\n",
-				__func__, level, cal_value, current->pid, get_task_comm(task_comm,current));
-		}
-	#else
-		pr_debug("[LCD][DEBUG] %s : backlight level=%d, cal_value=%d\n",
-				__func__, level, cal_value);
-	#endif
-
 }
 
 static void lm3630_set_main_current_level_no_mapping(
