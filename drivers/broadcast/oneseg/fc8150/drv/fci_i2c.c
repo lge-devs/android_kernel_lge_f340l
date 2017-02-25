@@ -1,8 +1,8 @@
 /*****************************************************************************
  Copyright(c) 2012 FCI Inc. All Rights Reserved
-
+ 
  File name : fci_i2c.c
-
+ 
  Description : fci i2c driver
 *******************************************************************************/
 #include <linux/mutex.h>
