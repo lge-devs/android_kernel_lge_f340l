@@ -5702,14 +5702,35 @@ wl_cfg80211_mgmt_tx(struct wiphy *wiphy, bcm_struct_cfgdev *cfgdev,
 
 	WL_DBG(("Enter \n"));
 
-	dev = cfgdev_to_wlc_ndev(cfgdev, wl);
-
-	/* find bssidx based on dev */
-	if (wl_cfgp2p_find_idx(wl, dev, &bssidx) != BCME_OK) {
-		WL_ERR(("Find p2p index from dev(%p) failed\n", dev));
-		return BCME_ERROR;
+	if (len > (ACTION_FRAME_SIZE + DOT11_MGMT_HDR_LEN)) {
+		WL_ERR(("bad length:%zu\n", len));
+		return BCME_BADARG;
 	}
-	if (p2p_is_on(wl)) {
+	dev = cfgdev_to_wlc_ndev(cfgdev, cfg);
+
+	if (!dev) {
+		WL_ERR(("dev is NULL\n"));
+		return -EINVAL;
+	}
+
+	/* set bsscfg idx for iovar (wlan0: P2PAPI_BSSCFG_PRIMARY, p2p: P2PAPI_BSSCFG_DEVICE)	*/
+	if (discover_cfgdev(cfgdev, cfg)) {
+		if (!cfg->p2p_supported || !cfg->p2p) {
+			WL_ERR(("P2P doesn't setup completed yet\n"));
+			return -EINVAL;
+		}
+		bssidx = wl_to_p2p_bss_bssidx(cfg, P2PAPI_BSSCFG_DEVICE);
+	}
+	else {
+		if (wl_cfgp2p_find_idx(cfg, dev, &bssidx) != BCME_OK) {
+			WL_ERR(("Find p2p index from dev(%p) failed\n", dev));
+			return BCME_ERROR;
+		}
+	}
+
+	WL_DBG(("TX target bssidx=%d\n", bssidx));
+
+	if (p2p_is_on(cfg)) {
 		/* Suspend P2P discovery search-listen to prevent it from changing the
 		 * channel.
 		 */
