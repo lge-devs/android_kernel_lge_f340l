@@ -187,6 +187,108 @@ struct dhd_pno_hotlist_params {
 	uint16 nbssid;
 	struct list_head bssid_list;
 };
+#ifdef GSCAN_SUPPORT
+typedef struct dhd_pno_gscan_channel_bucket {
+	uint16 bucket_freq_multiple;
+	/* band = 1 All bg band channels,
+	 * band = 2 All a band channels,
+	 * band = 0 chan_list channels
+	 */
+	uint16 band;
+	uint8 report_flag;
+	uint8 num_channels;
+	uint16 chan_list[GSCAN_MAX_CH_BUCKETS];
+} dhd_pno_gscan_channel_bucket_t;
+
+struct dhd_pno_swc_evt_param {
+	uint16 results_rxed_so_far;
+	wl_pfn_significant_net_t *change_array;
+};
+
+typedef struct wifi_gscan_result {
+    uint64 ts;                           /* Time of discovery           */
+    char ssid[DOT11_MAX_SSID_LEN+1];     /* null terminated             */
+    struct ether_addr	macaddr;         /* BSSID                      */
+    uint32 channel;                      /* channel frequency in MHz    */
+    int32 rssi;                          /* in db                       */
+    uint64 rtt;                          /* in nanoseconds              */
+    uint64 rtt_sd;                       /* standard deviation in rtt   */
+    uint16 beacon_period;                /* units are Kusec             */
+    uint16 capability;		            /* Capability information       */
+    uint32 ie_length;		            /* byte length of Information Elements */
+    char  ie_data[1];					/* IE data to follow       */
+} wifi_gscan_result_t;
+
+typedef struct gscan_results_cache {
+	struct gscan_results_cache *next;
+	uint8  scan_id;
+	uint8  flag;
+	uint8  tot_count;
+	uint8  tot_consumed;
+	wifi_gscan_result_t results[1];
+} gscan_results_cache_t;
+
+typedef struct dhd_pno_gscan_capabilities {
+    int max_scan_cache_size;
+    int max_scan_buckets;
+    int max_ap_cache_per_scan;
+    int max_rssi_sample_size;
+    int max_scan_reporting_threshold;
+    int max_hotlist_bssids;
+    int max_hotlist_ssids;
+    int max_significant_wifi_change_aps;
+    int max_bssid_history_entries;
+} dhd_pno_gscan_capabilities_t;
+
+struct dhd_pno_gscan_params {
+	int32 scan_fr;
+	uint8 bestn;
+	uint8 mscan;
+	uint8 buffer_threshold;
+	uint8 swc_nbssid_threshold;
+	uint8 swc_rssi_window_size;
+	uint8 lost_ap_window;
+	uint8 nchannel_buckets;
+	uint8 reason;
+	uint8 get_batch_flag;
+	uint8 send_all_results_flag;
+	uint16 max_ch_bucket_freq;
+	gscan_results_cache_t *gscan_batch_cache;
+	gscan_results_cache_t *gscan_hotlist_found;
+	gscan_results_cache_t *gscan_hotlist_lost;
+	uint16 nbssid_significant_change;
+	uint16 nbssid_hotlist;
+	struct dhd_pno_swc_evt_param param_significant;
+	struct dhd_pno_gscan_channel_bucket channel_bucket[GSCAN_MAX_CH_BUCKETS];
+	struct list_head hotlist_bssid_list;
+	struct list_head significant_bssid_list;
+};
+
+typedef struct gscan_scan_params {
+	int32 scan_fr;
+	uint16 nchannel_buckets;
+	struct dhd_pno_gscan_channel_bucket channel_bucket[GSCAN_MAX_CH_BUCKETS];
+} gscan_scan_params_t;
+
+typedef struct gscan_batch_params {
+	uint8 bestn;
+	uint8 mscan;
+	uint8 buffer_threshold;
+} gscan_batch_params_t;
+
+struct bssid_t {
+	struct ether_addr	macaddr;
+	int16 rssi_reporting_threshold;  /* 0 -> no reporting threshold */
+};
+
+typedef struct gscan_hotlist_scan_params {
+	uint16 lost_ap_window; /* number of scans to declare LOST */
+	uint16 nbssid;   /* number of bssids  */
+	struct bssid_t bssid[1];  /* n bssids to follow */
+} gscan_hotlist_scan_params_t;
+
+#endif /* GSCAN_SUPPORT */
+
 typedef union dhd_pno_params {
 	struct dhd_pno_legacy_params params_legacy;
 	struct dhd_pno_batch_params params_batch;

@@ -242,18 +242,27 @@ typedef union bcm_event_msg_u {
 #define WLC_E_CSA_DONE_IND		122
 #define WLC_E_CSA_FAILURE_IND		123
 #define WLC_E_CCA_CHAN_QUAL		124	/* CCA based channel quality report */
-#define WLC_E_CCX_S69_RESP_RX	129
-#define WLC_E_LAST			130	/* highest val + 1 for range checking */
+#define WLC_E_BSSID		125	/* to report change in BSSID while roaming */
+#define WLC_E_TX_STAT_ERROR		126	/* tx error indication */
+#define WLC_E_BCMC_CREDIT_SUPPORT	127	/* credit check for BCMC supported */
+#define WLC_E_BT_WIFI_HANDOVER_REQ	130	/* Handover Request Initiated */
+#define WLC_E_SPW_TXINHIBIT		131     /* Southpaw TxInhibit notification */
+#define WLC_E_FBT_AUTH_REQ_IND		132	/* FBT Authentication Request Indication */
+#define WLC_E_RSSI_LQM			133	/* Enhancement addition for WLC_E_RSSI */
+#define WLC_E_PFN_GSCAN_FULL_RESULT		134 /* Full probe/beacon (IEs etc) results */
+/* 135 was legacy entry for WLC_E_PFN_SWC can be reused */
+#define WLC_E_PFN_SCAN_COMPLETE	138	/* PFN completed scan of network list */
 
+#define WLC_E_RMC_EVENT			139	/* RMC event */
+#define WLC_E_LAST			140	/* highest val + 1 for range checking */
 
-/* Table of event name strings for UIs and debugging dumps */
-typedef struct {
-	uint event;
-	const char *name;
-} bcmevent_name_t;
+#if (WLC_E_LAST > 140)
+#error "WLC_E_LAST: Invalid value for last event; must be <= 140."
+#endif /* WLC_E_LAST */
 
-extern const bcmevent_name_t	bcmevent_names[];
-extern const int		bcmevent_names_size;
+/* define an API for getting the string name of an event */
+extern const char *bcmevent_get_name(uint event_type);
+/* validate if the event is proper and if valid copy event header to event */
 #ifndef SEC_ENHANCEMENT
 extern int is_wlc_event_frame(void *pktdata, wl_event_msg_t *event,
 	uint pktlen);
