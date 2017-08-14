@@ -1,7 +1,7 @@
 /*
  * Linux cfgp2p driver
  *
- * Copyright (C) 1999-2013, Broadcom Corporation
+ * Copyright (C) 1999-2014, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: wl_cfgp2p.c 442503 2013-12-11 19:55:32Z $
+ * $Id: wl_cfgp2p.c 503322 2014-09-18 07:29:37Z $
  *
  */
 #include <typedefs.h>
@@ -362,11 +362,12 @@ void
 wl_cfgp2p_deinit_priv(struct wl_priv *wl)
 {
 	CFGP2P_DBG(("In\n"));
+	cfg->p2p_supported = 0; //bcm patch: prevent kernel crash
 	if (wl->p2p) {
 		kfree(wl->p2p);
 		wl->p2p = NULL;
 	}
-	wl->p2p_supported = 0;
+	cfg->p2p_supported = 0;
 }
 /*
  * Set P2P functions into firmware
@@ -2631,6 +2632,9 @@ wl_cfgp2p_start_p2p_device(struct wiphy *wiphy, struct wireless_dev *wdev)
 	}
 
 	p2p_on(wl) = true;
+#if defined(P2P_IE_MISSING_FIX)
+	cfg->p2p_prb_noti = false;
+#endif
 
 	CFGP2P_DBG(("P2P interface started\n"));
 

@@ -4,7 +4,7 @@
  *
  * Definitions subject to change without notice.
  *
- * Copyright (C) 1999-2013, Broadcom Corporation
+ * Copyright (C) 1999-2014, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -24,7 +24,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: wlioctl.h 435951 2013-11-12 19:46:53Z $
+ * $Id: wlioctl.h 515139 2014-11-13 08:47:48Z $
  */
 
 #ifndef _wlioctl_h_
@@ -4295,11 +4295,13 @@ typedef enum wl_pkt_filter_type {
  */
 typedef struct wl_pkt_filter_pattern {
 	uint32	offset;		/* Offset within received packet to start pattern matching.
-				 * Offset '0' is the first byte of the ethernet header.
-				 */
+			 * Offset '0' is the first byte of the ethernet header.
+			 */
 	uint32	size_bytes;	/* Size of the pattern.  Bitmask must be the same size. */
 	uint8   mask_and_pattern[1]; /* Variable length mask and pattern data.  mask starts
-				      * at offset 0.  Pattern immediately follows mask.
+				      * at offset 0.  Pattern immediately follows mask. for
+				      * secured pattern, put the descrypter pointer to the
+				      * beginning, mask and pattern postponed correspondingly
 				      */
 } wl_pkt_filter_pattern_t;
 

@@ -1,27 +1,26 @@
 /*
- * Customer HW 10 dependant file
- *
- * Copyright (C) 1999-2013, Broadcom Corporation
- * 
- *      Unless you and Broadcom execute a separate written software license
- * agreement governing use of this software, this software is licensed to you
- * under the terms of the GNU General Public License version 2 (the "GPL"),
- * available at http://www.broadcom.com/licenses/GPLv2.php, with the
- * following added to such license:
- * 
- *      As a special exception, the copyright holders of this software give you
- * permission to link this software with independent modules, and to copy and
- * distribute the resulting executable under terms of your choice, provided that
- * you also meet, for each linked independent module, the terms and conditions of
- * the license of that module.  An independent module is a module which is not
- * derived from this software.  The special exception does not apply to any
- * modifications of the software.
- * 
- *      Notwithstanding the above, under no circumstances may you combine this
- * software in any way with any other Broadcom software provided under a license
- * other than the GPL, without Broadcom's express prior written consent.
- *
- * $Id: dhd_custom_lge.c 334946 2012-05-24 20:38:00Z $
+* Customer HW 10 dependant file
+* Copyright (C) 1999-2015, Broadcom Corporation
+* 
+*      Unless you and Broadcom execute a separate written software license
+* agreement governing use of this software, this software is licensed to you
+* under the terms of the GNU General Public License version 2 (the "GPL"),
+* available at http://www.broadcom.com/licenses/GPLv2.php, with the
+* following added to such license:
+* 
+*      As a special exception, the copyright holders of this software give you
+* permission to link this software with independent modules, and to copy and
+* distribute the resulting executable under terms of your choice, provided that
+* you also meet, for each linked independent module, the terms and conditions of
+* the license of that module.  An independent module is a module which is not
+* derived from this software.  The special exception does not apply to any
+* modifications of the software.
+* 
+*      Notwithstanding the above, under no circumstances may you combine this
+* software in any way with any other Broadcom software provided under a license
+* other than the GPL, without Broadcom's express prior written consent.
+
+ * $Id$
  */
 #ifdef CUSTOMER_HW10
 #include <typedefs.h>
@@ -580,61 +579,86 @@ static int dhd_preinit_proc(dhd_pub_t *dhd, int ifidx, char *name, char *value)
 
 	return 0;
 }
+#endif /* DHD_TCP_WINSIZE_ADJUST */
 
-int dhd_preinit_config(dhd_pub_t *dhd, int ifidx)
+#ifdef SOFTAP_TPUT_ENHANCE
+int set_softap_params(dhd_pub_t *dhd)
 {
-	mm_segment_t old_fs;
-	struct kstat stat;
-	struct file *fp = NULL;
-	unsigned int len;
-	char *buf = NULL, *p, *name, *value;
+	uint32 iovar_set;
+	char iov_buf[WLC_IOCTL_SMLEN];
 	int ret = 0;
-	char *config_path;
+	if (dhd->op_mode & DHD_FLAG_HOSTAP_MODE) {
+#ifdef BCMSDIO
+		dhd_bus_setidletime(dhd, 100);
+#endif
 
-	config_path = CONFIG_BCMDHD_CONFIG_PATH;
+#ifdef DHDTCPACK_SUPPRESS
+		dhd_tcpack_suppress_set(dhd, TCPACK_SUP_OFF);
+#endif
 
-	if (!config_path)
-	{
-		printk(KERN_ERR "config_path can't read. \n");
-		return 0;
-	}
+#if defined(DHD_TCP_WINSIZE_ADJUST)
+		dhd_use_tcp_window_size_adjust = TRUE;
+#endif
 
-	old_fs = get_fs();
-	set_fs(get_ds());
-	if ((ret = vfs_stat(config_path, &stat))) {
-		set_fs(old_fs);
-		printk(KERN_ERR "%s: Failed to get information (%d)\n",
-			config_path, ret);
-		return ret;
-	}
-	set_fs(old_fs);
+#ifdef CUSTOM_DSCP_TO_PRIO_MAPPING
+		dhd_dscpmap_enable = 1;
+#endif
 
-	if (!(buf = MALLOC(dhd->osh, stat.size + 1))) {
-		printk(KERN_ERR "Failed to allocate memory %llu bytes\n", stat.size);
-		return -ENOMEM;
-	}
+		iovar_set = 10;
+		bcm_mkiovar("ampdu_retry_limit", (char *)&iovar_set, 4, iov_buf, sizeof(iov_buf));
+		dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iov_buf, sizeof(iov_buf), TRUE, 0);
 
-	printk("dhd_preinit_config : config path : %s \n", config_path);
+		iovar_set = 5;
+		bcm_mkiovar("ampdu_rr_retry_limit", (char *)&iovar_set, 4, iov_buf,
+		 sizeof(iov_buf));
+		dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iov_buf, sizeof(iov_buf), TRUE, 0);	
 
-	if (!(fp = dhd_os_open_image(config_path)) ||
-		(len = dhd_os_get_image_block(buf, stat.size, fp)) < 0)
-		goto err;
+#if defined(BCM43455_CHIP) || defined(BCM4339_CHIP)
+		iovar_set = 13;
+		if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_SRL, (char *)&iovar_set,
+			sizeof(iovar_set), TRUE, 0)) < 0) {
+			DHD_ERROR(("%s Set SRL failed  %d\n", __FUNCTION__, ret));
+		}
 
-	buf[stat.size] = '\0';
-	for (p = buf; *p; p++) {
-		if (isspace(*p))
-			continue;
-		for (name = p++; *p && !isspace(*p); p++) {
-			if (*p == '=') {
-				*p = '\0';
-				p++;
-				for (value = p; *p && !isspace(*p); p++);
-				*p = '\0';
-				if ((ret = dhd_preinit_proc(dhd, ifidx, name, value)) < 0) {
-					printk(KERN_ERR "%s: %s=%s\n",
-						bcmerrorstr(ret), name, value);
-				}
-				break;
+		iovar_set = 13;
+		if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_LRL, (char *)&iovar_set,
+			sizeof(iovar_set), TRUE, 0)) < 0) {
+			DHD_ERROR(("%s Set LRL failed  %d\n", __FUNCTION__, ret));
+		}
+
+		iovar_set = 0;
+		if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_FAKEFRAG, (char *)&iovar_set,
+			sizeof(iovar_set), TRUE, 0)) < 0) {
+			DHD_ERROR(("%s Set frameburst failed  %d\n", __FUNCTION__, ret));
+		}
+#endif  /* defined(BCM43455_CHIP) || defined(BCM4339_CHIP) */
+
+#ifdef BCM4334_CHIP
+		iovar_set = 0;
+		bcm_mkiovar("ampdu_rts", (char *)&iovar_set, 4, iov_buf, sizeof(iov_buf));
+		dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iov_buf, sizeof(iov_buf), TRUE, 0);
+
+		iovar_set = 1;
+		dhd_wl_ioctl_cmd(dhd, WLC_SET_FAKEFRAG, (char *)&iov_buf, sizeof(iov_buf), TRUE, 0);
+#endif
+
+#if defined(BCM4335_CHIP) || defined(BCM4339_CHIP)
+		bcm_mkiovar("bus:txglom_auto_control", 0, 0, iov_buf, sizeof(iov_buf));
+		if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_GET_VAR, iov_buf, sizeof(iov_buf),
+			FALSE, 0)) < 0) {
+				iovar_set = 0;
+				bcm_mkiovar("bus:txglom", (char *)&iovar_set, 4, iov_buf,
+				 sizeof(iov_buf));
+				dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iov_buf, sizeof(iov_buf),
+				 TRUE, 0);
+		}
+		else {
+			if (iov_buf[0] == 0) {
+				iovar_set = 1;
+				bcm_mkiovar("bus:txglom_auto_control", (char *)&iovar_set, 4,
+				 iov_buf, sizeof(iov_buf));
+				dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iov_buf, sizeof(iov_buf),
+				 TRUE, 0);
 			}
 		}
 	}

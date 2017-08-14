@@ -2,7 +2,7 @@
  * Broadcom Dongle Host Driver (DHD), Linux-specific network interface
  * Basically selected code segments from usb-cdc.c and usb-rndis.c
  *
- * Copyright (C) 1999-2013, Broadcom Corporation
+ * Copyright (C) 1999-2014, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -22,7 +22,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd_linux.c 442539 2013-12-11 23:02:52Z $
+ * $Id: dhd_linux.c 515169 2014-11-13 13:19:49Z $
  */
 
 #include <typedefs.h>
@@ -140,7 +140,14 @@ extern bool ap_fw_loaded;
 #endif /* CUSTOMER_HW4 */
 
 #ifdef ENABLE_ADAPTIVE_SCHED
+//LGE_Patch
+#if defined(CONFIG_MACH_MSM8992_P1) || defined(CONFIG_MACH_MSM8992_PPLUS) || defined(CONFIG_MACH_MSM8992_P1A4WP)
+#define DEFAULT_CPUFREQ_THRESH         800000    /* threshold frequency : 800000 = 800MHz */
+#elif defined(CONFIG_MACH_MSM8992_PPLUS)
+#define DEFAULT_CPUFREQ_THRESH		 800000	/* threshold frequency : 800000 = 800MHz */
+#else
 #define DEFAULT_CPUFREQ_THRESH		1000000	/* threshold frequency : 1000000 = 1GHz */
+#endif
 #ifndef CUSTOM_CPUFREQ_THRESH
 #define CUSTOM_CPUFREQ_THRESH	DEFAULT_CPUFREQ_THRESH
 #endif /* CUSTOM_CPUFREQ_THRESH */
@@ -291,6 +298,10 @@ static inline int dhd_write_macaddr(struct ether_addr *mac) { return 0; }
 extern int dhd_preinit_config(dhd_pub_t *dhd, int ifidx);
 #endif /* CUSTOMER_HW10 */
 
+#if defined(DHD_DEBUG)
+static void dhd_mem_dump(void *dhd_info, void *event_info, u8 event);
+#endif /* DHD_DEBUG */
+
 
 #if defined(SOFTAP_TPUT_ENHANCE)
 extern void dhd_bus_setidletime(dhd_pub_t *dhdp, int idle_time);
@@ -351,6 +362,13 @@ static uint32 maxdelay = 0, tspktcnt = 0, maxdelaypktno = 0;
 
 #endif  /* WLMEDIA_HTSF */
 
+
+#if defined(DHD_DEBUG)
+typedef struct dhd_dump {
+	uint8 *buf;
+	int bufsize;
+} dhd_dump_t;
+#endif /* DHD_DEBUG */
 /* Local private structure (extension of pub) */
 typedef struct dhd_info {
 #if defined(WL_WIRELESS_EXT)
@@ -694,7 +712,7 @@ static int dhd_toe_get(dhd_info_t *dhd, int idx, uint32 *toe_ol);
 static int dhd_toe_set(dhd_info_t *dhd, int idx, uint32 toe_ol);
 #endif /* TOE */
 
-static int dhd_wl_host_event(dhd_info_t *dhd, int *ifidx, void *pktdata, size_t pktlen,
+static int dhd_wl_host_event(dhd_info_t *dhd, int *ifidx, void *pktdata,
                              wl_event_msg_t *event_ptr, void **data_ptr);
 #ifdef DHD_UNICAST_DHCP
 static const uint8 llc_snap_hdr[SNAP_HDR_LEN] = {0xaa, 0xaa, 0x03, 0x00, 0x00, 0x00};
@@ -1984,6 +2002,10 @@ dhd_start_xmit(struct sk_buff *skb, struct net_device *net)
 	}
 #endif
 
+#ifdef CUSTOMER_HW10
+			ret = BCME_ERROR;
+#ifdef CUSTOMER_HW10
+			ret = BCME_ERROR;
 	ret = dhd_sendpkt(&dhd->pub, ifidx, pktbuf);
 
 done:
@@ -2235,7 +2257,6 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 #else
 			skb->mac.raw,
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 22) */
-			len - 2,
 			&event,
 			&data);
 
@@ -3990,7 +4011,7 @@ dhd_attach(osl_t *osh, struct dhd_bus *bus, uint bus_hdrlen)
 
 #ifdef DHDTCPACK_SUPPRESS
 	dhd->pub.tcp_ack_info_cnt = 0;
-	bzero(dhd->pub.tcp_ack_info_tbl, sizeof(struct tcp_ack_info)*MAXTCPSTREAMS);
+	dhd_tcpack_suppress_set(&dhd->pub, TCPACK_SUP_REPLACE);
 #endif /* DHDTCPACK_SUPPRESS */
 
 	dhd_state |= DHD_ATTACH_STATE_DONE;
@@ -4010,6 +4031,12 @@ fail:
 
 	return NULL;
 }
+#elif defined(BCM43455_CHIP)
+	config_chipid = BCM4345_CHIP_ID;
+#if defined(BCM4358_CHIP)
+	if (chipid == BCM43569_CHIP_ID && config_chipid == BCM4358_CHIP_ID)
+		return TRUE;
+#if defined(BCM4356_CHIP)
 
 int
 dhd_bus_start(dhd_pub_t *dhdp)
@@ -4942,6 +4969,7 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 				sizeof(iovbuf));
 				dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
 			}
+
 		}
 }
 #endif /* SOFTAP_TPUT_ENHANCE */
@@ -5471,8 +5499,7 @@ void dhd_detach(dhd_pub_t *dhdp)
 		}
 		/*  delete primary interface 0 */
 		ifp = dhd->iflist[0];
-		ASSERT(ifp);
-		ASSERT(ifp->net);
+		ASSERT(ifp && ifp->net);
 		if (ifp && ifp->net) {
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 31))
 			if (ifp->net->open)
@@ -5571,6 +5598,10 @@ dhd_free(dhd_pub_t *dhdp)
 			}
 		}
 		dhd = (dhd_info_t *)dhdp->info;
+		if (dhdp->soc_ram) {
+			MFREE(dhdp->osh, dhdp->soc_ram, dhdp->soc_ram_length);
+			dhdp->soc_ram = NULL;
+		}
 #if defined(CONFIG_DHD_USE_STATIC_BUF)
 		/* If pointer is allocated by dhd_os_prealloc then avoid MFREE */
 		if (dhd != (dhd_info_t *)dhd_os_prealloc(NULL, DHD_PREALLOC_DHD_INFO, 0)) {
@@ -5584,6 +5615,11 @@ dhd_free(dhd_pub_t *dhdp)
 				dhd = NULL;
 		}
 #endif /* CONFIG_DHD_USE_STATIC_BUF */
+
+		if (dhdp->soc_ram) {
+			MFREE(dhdp->osh, dhdp->soc_ram, dhdp->soc_ram_length);
+			dhdp->soc_ram = NULL;
+		}
 	}
 }
 
@@ -6085,19 +6121,23 @@ dhd_get_wireless_stats(struct net_device *dev)
 #endif /* defined(WL_WIRELESS_EXT) */
 
 static int
-dhd_wl_host_event(dhd_info_t *dhd, int *ifidx, void *pktdata, size_t pktlen,
+dhd_wl_host_event(dhd_info_t *dhd, int *ifidx, void *pktdata,
 	wl_event_msg_t *event, void **data)
 {
 	int bcmerror = 0;
 	ASSERT(dhd != NULL);
 
 #ifdef SHOW_LOGTRACE
-		bcmerror = wl_host_event(&dhd->pub, ifidx, pktdata, pktlen, event, data, &dhd->event_data);
+		bcmerror = wl_host_event(&dhd->pub, ifidx, pktdata, event, data, &dhd->event_data);
 #else
-		bcmerror = wl_host_event(&dhd->pub, ifidx, pktdata, pktlen, event, data, NULL);
+		bcmerror = wl_host_event(&dhd->pub, ifidx, pktdata, event, data, NULL);
 #endif /* SHOW_LOGTRACE */
 
+#ifdef CUSTOMER_HW10
+	if (!dhd->pub.up || bcmerror != BCME_OK)
+#else
 	if (bcmerror != BCME_OK)
+#endif
 		return (bcmerror);
 
 #if defined(WL_WIRELESS_EXT)
@@ -6491,6 +6531,15 @@ dhd_dev_pno_set_for_hotlist(struct net_device *dev, wl_pfn_bssid_t *p_pfn_bssid,
 	dhd_info_t *dhd = *(dhd_info_t **)netdev_priv(dev);
 	return (dhd_pno_set_for_hotlist(&dhd->pub, p_pfn_bssid, hotlist_params));
 }
+#ifdef LPS_SUPPORT
+/* Linux wrapper to call common dhd_pno_stop_for_hotlist */
+int
+dhd_dev_pno_stop_for_hotlist(struct net_device *dev)
+{
+	dhd_info_t *dhd = DHD_DEV_INFO(dev);
+	return (dhd_pno_stop_for_hotlist(&dhd->pub));
+}
+#endif	/* LPS_SUPPORT */
 /* Linux wrapper to call common dhd_dev_pno_stop_for_batch */
 int
 dhd_dev_pno_stop_for_batch(struct net_device *dev)
@@ -6541,7 +6590,6 @@ static void dhd_hang_process(struct work_struct *work)
 		wl_cfg80211_hang(dev, WLAN_REASON_UNSPECIFIED);
 #endif
 	}
-	dhd->pub.hang_was_sent = 0;
 }
 
 int dhd_os_send_hang_message(dhd_pub_t *dhdp)
@@ -6713,8 +6761,14 @@ write_to_file(dhd_pub_t *dhd, uint8 *buf, int size)
 	set_fs(KERNEL_DS);
 
 	/* open file to write */
+#if defined(CUSTOMER_HW5) || defined(CUSTOMER_HW4)
+	fp = filp_open("/data/mem_dump", O_WRONLY|O_CREAT, 0640);
+#else
 	fp = filp_open("/tmp/mem_dump", O_WRONLY|O_CREAT, 0640);
-	if (!fp) {
+#endif /* CUSTOMER_HW5 || CUSTOMER_HW4 */
+
+	if (IS_ERR(fp)) {
+		fp = NULL;
 		printf("%s: open file error\n", __FUNCTION__);
 		ret = -1;
 		goto exit;
@@ -6722,10 +6776,13 @@ write_to_file(dhd_pub_t *dhd, uint8 *buf, int size)
 
 	/* Write buf to file */
 	fp->f_op->write(fp, buf, size, &pos);
+	fp->f_op->fsync(fp, 0, size-1, 1);
 
 exit:
 	/* free buf before return */
-	MFREE(dhd->osh, buf, size);
+	if (buf) {
+		MFREE(dhd->osh, buf, size);
+	}
 	/* close file before return */
 	if (fp)
 		filp_close(fp, current->files);
@@ -7640,6 +7697,33 @@ static int dhd_port_list_match(int port)
 	}
 	return 0;
 }
+
+#if defined(DHD_DEBUG)
+void dhd_schedule_memdump(dhd_pub_t *dhdp, uint8 *buf, uint32 size)
+{
+	dhd_dump_t *dump = NULL;
+	dump = MALLOC(dhdp->osh, sizeof(dhd_dump_t));
+	dump->buf = buf;
+	dump->bufsize = size;
+	dhd_deferred_schedule_work(dhdp->info->dhd_deferred_wq, (void *)dump,
+		DHD_WQ_WORK_SOC_RAM_DUMP, dhd_mem_dump, DHD_WORK_PRIORITY_HIGH);
+}
+
+static void
+dhd_mem_dump(void *handle, void *event_info, u8 event)
+{
+	dhd_info_t *dhd = handle;
+	dhd_dump_t *dump = event_info;
+
+	if (!dhd || !dump)
+		return;
+
+	if (write_to_file(&dhd->pub, dump->buf, dump->bufsize)) {
+		DHD_ERROR(("%s: writing SoC_RAM dump to the file failed\n", __FUNCTION__));
+	}
+	MFREE(dhd->pub.osh, dump, sizeof(dhd_dump_t));
+}
+#endif /* DHD_DEBUG */
 
 static void dhd_adjust_tcp_winsize(int op_mode, struct sk_buff *skb)
 {

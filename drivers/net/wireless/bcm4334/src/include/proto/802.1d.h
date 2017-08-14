@@ -1,5 +1,8 @@
 /*
- * Copyright (C) 1999-2013, Broadcom Corporation
+ * Broadcom Dongle Host Driver (DHD), Generic work queue framework
+ * Generic interface to handle dhd deferred work events
+ *
+ * Copyright (C) 1999-2015, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -21,7 +24,7 @@
  *
  * Fundamental types and constants relating to 802.1D
  *
- * $Id: 802.1d.h 382882 2013-02-04 23:24:31Z $
+ * $Id: dhd_linux_wq.h 449578 2014-01-17 13:53:20Z $
  */
 
 #ifndef _802_1_D_
@@ -31,6 +34,7 @@
 #define	PRIO_8021D_NONE		2	/* None = - */
 #define	PRIO_8021D_BK		1	/* BK - Background */
 #define	PRIO_8021D_BE		0	/* BE - Best-effort */
+	DHD_WQ_WORK_SOC_RAM_DUMP,
 #define	PRIO_8021D_EE		3	/* EE - Excellent-effort */
 #define	PRIO_8021D_CL		4	/* CL - Controlled Load */
 #define	PRIO_8021D_VI		5	/* Vi - Video */

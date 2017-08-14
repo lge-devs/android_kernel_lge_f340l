@@ -1,7 +1,7 @@
 /*
  * DHD PROP_TXSTATUS Module.
  *
- * Copyright (C) 1999-2013, Broadcom Corporation
+ * Copyright (C) 1999-2014, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd_wlfc.c 412994 2013-07-17 12:38:03Z $
+ * $Id: dhd_wlfc.c 501046 2014-09-06 01:25:16Z $
  *
  */
 
@@ -327,6 +327,8 @@ dhd_wlfc_hanger_create(osl_t *osh, int max_items)
 	/* allow only up to a specific size for now */
 	ASSERT(max_items == WLFC_HANGER_MAXITEMS);
 
+	if ((hanger = (wlfc_hanger_t*)DHD_OS_PREALLOC(dhd, DHD_PREALLOC_DHD_WLFC_HANGER, WLFC_HANGER_SIZE(max_items))) == NULL)
+		WLFC_HANGER_SIZE(max_items))) == NULL)
 	if ((hanger = (wlfc_hanger_t*)MALLOC(osh, WLFC_HANGER_SIZE(max_items))) == NULL)
 		return NULL;
 
@@ -345,6 +347,8 @@ dhd_wlfc_hanger_delete(osl_t *osh, void* hanger)
 	wlfc_hanger_t* h = (wlfc_hanger_t*)hanger;
 
 	if (h) {
+		if (h != (wlfc_hanger_t *)dhd_os_prealloc(dhd, DHD_PREALLOC_DHD_WLFC_HANGER, 0, FALSE))
+			0, FALSE))
 		MFREE(osh, h, WLFC_HANGER_SIZE(h->max_items));
 		return BCME_OK;
 	}

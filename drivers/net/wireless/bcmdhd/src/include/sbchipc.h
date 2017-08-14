@@ -5,9 +5,9 @@
  * JTAG, 0/1/2 UARTs, clock frequency control, a watchdog interrupt timer,
  * GPIO interface, extbus, and support for serial and parallel flashes.
  *
- * $Id: sbchipc.h 385540 2013-02-15 23:14:50Z $
+ * $Id: sbchipc.h 543294 2015-03-24 06:10:31Z $
  *
- * Copyright (C) 1999-2013, Broadcom Corporation
+ * Copyright (C) 1999-2015, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -2488,8 +2488,14 @@ typedef volatile struct {
 #define CCTRL1_4335_GPIO_SEL		(1 << 0)    /* 1=select GPIOs to be muxed out */
 #define CCTRL1_4335_SDIO_HOST_WAKE (1 << 2)  /* SDIO: 1=configure GPIO0 for host wake */
 
-#define CR4_4335_RAM_BASE                    (0x180000)
+/* 4335 Chip specific ChipControl2 register bits */
+#define CCTRL2_4335_AOSBLOCK		(1 << 30)
+#define CCTRL2_4335_PMUWAKE		(1 << 31)
 #define PATCHTBL_SIZE			(0x800)
+#define CR4_4335_RAM_BASE                    (0x180000)
+#define CR4_4345_LT_C0_RAM_BASE              (0x1b0000)
+#define CR4_4345_GE_C0_RAM_BASE              (0x198000)
+#define CR4_4349_RAM_BASE                    (0x180000)
 #define CR4_4350_RAM_BASE                    (0x180000)
 #define CR4_4360_RAM_BASE                    (0x0)
 

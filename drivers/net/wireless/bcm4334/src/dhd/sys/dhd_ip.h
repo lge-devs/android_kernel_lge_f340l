@@ -1,9 +1,7 @@
 /*
- * Header file describing the common ip parser function.
+ * Definitions for nl80211 vendor command/event access to host driver
  *
- * Provides type definitions and function prototypes used to parse ip packet.
- *
- * Copyright (C) 1999-2013, Broadcom Corporation
+ * Copyright (C) 1999-2015, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you

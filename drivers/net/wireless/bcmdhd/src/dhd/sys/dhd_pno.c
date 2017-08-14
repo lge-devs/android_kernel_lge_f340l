@@ -2,7 +2,7 @@
  * Broadcom Dongle Host Driver (DHD)
  * Prefered Network Offload and Wi-Fi Location Service(WLS) code.
  *
- * Copyright (C) 1999-2013, Broadcom Corporation
+ * Copyright (C) 1999-2014, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -749,6 +749,7 @@ dhd_pno_stop_for_ssid(dhd_pub_t *dhd)
 {
 	int err = BCME_OK;
 	uint32 mode = 0;
+	int i = 0;
 	dhd_pno_status_info_t *_pno_state;
 	dhd_pno_params_t *_params;
 	wl_pfn_bssid_t *p_pfn_bssid;
@@ -795,13 +796,15 @@ dhd_pno_stop_for_ssid(dhd_pub_t *dhd)
 				goto exit;
 			}
 			/* convert dhd_pno_bssid to wl_pfn_bssid */
+			i=0;
 			list_for_each_entry_safe(iter, next,
 			&_params->params_hotlist.bssid_list, list) {
-				memcpy(&p_pfn_bssid->macaddr,
+				memcpy(&p_pfn_bssid[i].macaddr,
 				&iter->macaddr, ETHER_ADDR_LEN);
-				p_pfn_bssid->flags = iter->flags;
-				p_pfn_bssid++;
+				p_pfn_bssid[i].flags = iter->flags;
+				i++;
 			}
+
 			err = dhd_pno_set_for_hotlist(dhd, p_pfn_bssid, &_params->params_hotlist);
 			if (err < 0) {
 				_pno_state->pno_mode &= ~DHD_PNO_HOTLIST_MODE;
@@ -1419,10 +1422,12 @@ dhd_pno_get_for_batch(dhd_pub_t *dhd, char *buf, int bufsize, int reason)
 	params_batch = &_pno_state->pno_params_arr[INDEX_OF_BATCH_PARAMS].params_batch;
 	if (!(_pno_state->pno_mode & DHD_PNO_BATCH_MODE)) {
 		DHD_ERROR(("%s: Batching SCAN mode is not enabled\n", __FUNCTION__));
-		memset(pbuf, 0, bufsize);
-		pbuf += sprintf(pbuf, "scancount=%d\n", 0);
-		sprintf(pbuf, "%s", RESULTS_END_MARKER);
-		err = strlen(buf);
+			if (pbuf && bufsize) {
+			memset(pbuf, 0, bufsize);
+			pbuf += sprintf(pbuf, "scancount=%d\n", 0);
+			sprintf(pbuf, "%s", RESULTS_END_MARKER);
+			err = strlen(buf);
+			}
 		goto exit;
 	}
 	params_batch->get_batch.buf = buf;
@@ -1664,6 +1669,9 @@ dhd_pno_set_for_hotlist(dhd_pub_t *dhd, wl_pfn_bssid_t *p_pfn_bssid,
 			__FUNCTION__, err));
 		goto exit;
 	}
+#ifdef LPS_SUPPORT
+	_params->params_hotlist.scan_fr = hotlist_params->scan_fr;
+#endif
 	if ((err = _dhd_pno_set(dhd, _params, DHD_PNO_HOTLIST_MODE)) < 0) {
 		DHD_ERROR(("%s : failed to set call pno_set (err %d) in firmware\n",
 			__FUNCTION__, err));
