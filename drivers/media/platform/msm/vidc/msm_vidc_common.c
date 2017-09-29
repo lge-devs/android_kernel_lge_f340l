@@ -2034,8 +2034,8 @@ static int set_output_buffers(struct msm_vidc_inst *inst,
 {
 	int rc = 0;
 	struct msm_smem *handle;
-	struct internal_buf *binfo;
-	struct vidc_buffer_addr_info buffer_info;
+	struct internal_buf *binfo = NULL;
+	struct vidc_buffer_addr_info buffer_info = {0};
 	u32 smem_flags = 0, buffer_size;
 	struct hal_buffer_requirements *output_buf, *extradata_buf;
 	int i;
@@ -2126,10 +2126,10 @@ static int set_output_buffers(struct msm_vidc_inst *inst,
 	}
 	return rc;
 fail_set_buffers:
-	kfree(binfo);
-fail_kzalloc:
 	msm_comm_smem_free(inst, handle);
 err_no_mem:
+	kfree(binfo);
+fail_kzalloc:
 	return rc;
 }
 
