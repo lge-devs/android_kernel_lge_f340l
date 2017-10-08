@@ -5476,9 +5476,6 @@ process_pkt:
 			u64_stats_update_end(&tp->rx_stats.syncp);
 		}
 release_descriptor:
-		desc->opts2 = 0;
-		wmb();
-		rtl8169_mark_to_asic(desc, rx_buf_sz);
 	}
 
 	count = cur_rx - tp->cur_rx;
