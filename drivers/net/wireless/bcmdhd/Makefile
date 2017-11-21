@@ -10,11 +10,37 @@ DHDCFLAGS = -Wall -Wstrict-prototypes -Dlinux -DLINUX -DBCMDRIVER             \
         -DMMC_SDIO_ABORT -DBCMSDIO -DBCMLXSDMMC -DBCMPLATFORM_BUS -DWLP2P     \
         -DWIFI_ACT_FRAME -DARP_OFFLOAD_SUPPORT                                \
         -DKEEP_ALIVE -DCSCAN -DPKT_FILTER_SUPPORT                             \
-        -DEMBEDDED_PLATFORM -DPNO_SUPPORT
+        -DEMBEDDED_PLATFORM -DPNO_SUPPORT -DREAD_CONFIG_FROM_FILE             \
+	-DSEC_ENHANCEMENT
 
-#################
-# Common feature
-#################
+######################################
+# bus(SDIO/PCIe) specific feature list
+######################################
+
+ifeq ($(CONFIG_BCMDHD_SDIO),y)
+  DHDCFLAGS += -DBDC -DDHD_BCMEVENTS -DMMC_SDIO_ABORT
+  DHDCFLAGS += -DBCMSDIO -DBCMLXSDMMC
+  DHDCFLAGS += -DCUSTOM_DPC_PRIO_SETTING=98
+  DHDCFLAGS += -DDHD_USE_IDLECOUNT
+  # SKB TAILPAD to avoid out of boundary memory access
+  DHDCFLAGS += -DDHDENABLE_TAILPAD
+else ifeq ($(CONFIG_BCMDHD_PCIE),y)
+  DHDCFLAGS += -DPCIE_FULL_DONGLE -DBCMPCIE
+  # DPC priority
+  DHDCFLAGS += -DCUSTOM_DPC_PRIO_SETTING=-1
+  # Disable watchdog thread
+  DHDCFLAGS += -DCUSTOM_DHD_WATCHDOG_MS=500
+  # Enable Link down recovery
+ifeq ($(CONFIG_ARCH_MSM),y)
+  DHDCFLAGS += -DSUPPORT_LINKDOWN_RECOVERY
+  DHDCFLAGS += -DBCMPCIE_DISABLE_ASYNC_SUSPEND
+endif
+endif
+
+######################################
+# common feature for customer platform
+######################################
+
 
 ifeq ($(CONFIG_BCMDHD_HOSTWAKEUP_USE_GPIO),y)
 ifeq ($(CONFIG_BCMDHD_HW_OOB),y)
@@ -85,13 +111,15 @@ DHDCFLAGS += -DDISABLE_11H_SOFTAP
 DHDCFLAGS += -DSUPPORT_PM2_ONLY
 #DHDCFLAGS += -DSUPPORT_DEEP_SLEEP
 DHDCFLAGS += -DSUPPORT_AMPDU_MPDU_CMD
-#DHDCFLAGS += -DBLOCK_IPV6_PACKET -DPASS_IPV4_SUSPEND
+DHDCFLAGS += -DPASS_IPV4_SUSPEND
 
 # For special PNO Event keep wake lock for 10sec
 DHDCFLAGS += -DCUSTOM_PNO_EVENT_LOCK_xTIME=10
 
 # For Passing all multicast packets to host when not in suspend mode.
-DHDCFLAGS += -DPASS_ALL_MCAST_PKTS
+# undefine for applying Runtime multicast pkt filter
+# DHDCFLAGS += -DPASS_ALL_MCAST_PKTS
+DHDCFLAGS += -DMANUAL_ALL_MCAST_PKTS
 
 # Early suspend
 #DHDCFLAGS += -DDHD_USE_EARLYSUSPEND 
@@ -119,8 +147,11 @@ endif
 DHDCFLAGS += -DP2P_IE_MISSING_FIX
 
 # DTIM listen interval in suspend mode(0 means follow AP's DTIM period)
+ifeq ($(CONFIG_BCMDHD_FOLLOW_AP_DTIM_PERIOD),y)
+DHDCFLAGS += -DCUSTOM_SUSPEND_BCN_LI_DTIM=0
+else
 DHDCFLAGS += -DCUSTOM_SUSPEND_BCN_LI_DTIM=3
-DHDCFLAGS += -DMAX_DTIM_ALLOWED_INTERVAL=900
+endif
 
 # Ioctl timeout 5000ms
 DHDCFLAGS += -DIOCTL_RESP_TIMEOUT=5000

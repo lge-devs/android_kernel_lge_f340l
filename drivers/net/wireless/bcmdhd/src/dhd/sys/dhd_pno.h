@@ -1,7 +1,7 @@
 /*
  * Header file of Broadcom Dongle Host Driver (DHD)
  * Prefered Network Offload code and Wi-Fi Location Service(WLS) code.
- * Copyright (C) 1999-2014, Broadcom Corporation
+ * Copyright (C) 1999-2015, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -58,6 +58,9 @@
 #define RESULTS_END_MARKER "----\n"
 #define SCAN_END_MARKER "####\n"
 #define AP_END_MARKER "====\n"
+#define GSCAN_MAX_CHANNELS_IN_BUCKET     32
+#define GSCAN_MAX_AP_CACHE_PER_SCAN      32
+#define GSCAN_MAX_AP_CACHE               320
 
 enum scan_status {
 	/* SCAN ABORT by other scan */

@@ -1,7 +1,7 @@
 /*
  * DHD Bus Module for SDIO
  *
- * Copyright (C) 1999-2014, Broadcom Corporation
+ * Copyright (C) 1999-2015, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -296,6 +296,8 @@ typedef struct dhd_bus {
 	int32		sd_rxchain;		/* If bcmsdh api accepts PKT chains */
 	bool		use_rxchain;		/* If dhd should use PKT chains */
 	bool		sleeping;		/* Is SDIO bus sleeping? */
+#if defined(SUPPORT_P2P_GO_PS)
+#endif /* LINUX && SUPPORT_P2P_GO_PS */
 	uint		rxflow_mode;		/* Rx flow control mode */
 	bool		rxflow;			/* Is rx flow control on */
 	uint		prev_rxlim_hit;		/* Is prev rx limit exceeded (per dpc schedule) */
@@ -1510,7 +1512,9 @@ dhdsdio_bussleep(dhd_bus_t *bus, bool sleep)
 
 		/* Change state */
 		bus->sleeping = TRUE;
+#if defined(SUPPORT_P2P_GO_PS)
 
+#endif /* LINUX && SUPPORT_P2P_GO_PS */
 	} else {
 		/* Waking up: bus power up is ok, set local state */
 
@@ -4780,7 +4784,6 @@ dhd_txglom_enable(dhd_pub_t *dhdp, bool enable)
 {
 	dhd_bus_t *bus = dhdp->bus;
 
-	char buf[256];
 	uint32 rxglom;
 	int32 ret;
 
@@ -4788,9 +4791,8 @@ dhd_txglom_enable(dhd_pub_t *dhdp, bool enable)
 
 	if (enable) {
 		rxglom = 1;
-		memset(buf, 0, sizeof(buf));
-		bcm_mkiovar("bus:rxglom",
-			(void *)&rxglom,
+		bcm_mkiovar("bus:rxglom", (void *)&rxglom, 4, buf, sizeof(buf));
+		ret = dhd_wl_ioctl_cmd(dhdp, WLC_SET_VAR, buf, sizeof(buf), TRUE, 0);
 			4, buf, sizeof(buf));
 		ret = dhd_wl_ioctl_cmd(dhdp,
 			WLC_SET_VAR, buf,
@@ -7472,6 +7474,10 @@ dhdsdio_probe(uint16 venid, uint16 devid, uint16 bus_no, uint16 slot,
 	/* attach the common module */
 	dhd_common_init(osh);
 
+#if defined(SUPPORT_P2P_GO_PS)
+	init_waitqueue_head(&bus->bus_sleep);
+#endif /* LINUX && SUPPORT_P2P_GO_PS */
+
 	/* attempt to attach to the dongle */
 	if (!(dhdsdio_probe_attach(bus, osh, sdh, regsva, devid))) {
 		DHD_ERROR(("%s: dhdsdio_probe_attach failed\n", __FUNCTION__));
@@ -8093,7 +8099,11 @@ dhdsdio_disconnect(void *ptr)
 }
 
 
-	if (ret && (bus->dhd->up)) {
+#ifdef SUPPORT_P2P_GO_PS
+#endif /* SUPPORT_P2P_GO_PS */
+	if ((ret) && (bus->dhd->up)) {
+	if ((ret) && (bus->dhd->up) && (bus->dhd->op_mode != DHD_FLAG_HOSTAP_MODE)) {
+#endif /* SUPPORT_P2P_GO_PS */
 /* Register/Unregister functions are called by the main DHD entry
  * point (e.g. module insertion) to link with the bus driver, in
  * order to look for or await the device.

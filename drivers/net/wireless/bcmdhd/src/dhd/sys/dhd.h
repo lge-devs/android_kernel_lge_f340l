@@ -4,7 +4,7 @@
  * Provides type definitions and function prototypes used to link the
  * DHD OS, bus, and protocol modules.
  *
- * Copyright (C) 1999-2014, Broadcom Corporation
+ * Copyright (C) 1999-2015, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -24,7 +24,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd.h 515169 2014-11-13 13:19:49Z $
+ * $Id: dhd.h 522006 2014-12-19 08:44:54Z $
  */
 
 /****************
@@ -702,9 +702,10 @@ extern int dhd_ifname2idx(struct dhd_info *dhd, char *name);
 extern int dhd_net2idx(struct dhd_info *dhd, struct net_device *net);
 extern struct net_device * dhd_idx2net(void *pub, int ifidx);
 extern int net_os_send_hang_message(struct net_device *dev);
-extern int wl_host_event(dhd_pub_t *dhd_pub, int *idx, void *pktdata,
+extern int wl_host_event(dhd_pub_t *dhd_pub, int *idx, void *pktdata, size_t pktlen,
                          wl_event_msg_t *, void **data_ptr,  void *);
 extern void wl_event_to_host_order(wl_event_msg_t * evt);
+extern int wl_host_event_get_data(void *pktdata, uint pktlen, bcm_event_msg_u_t *evu);
 
 extern int dhd_wl_ioctl(dhd_pub_t *dhd_pub, int ifindex, wl_ioctl_t *ioc, void *buf, int len);
 extern int dhd_wl_ioctl_cmd(dhd_pub_t *dhd_pub, int cmd, void *arg, int len, uint8 set,
@@ -720,7 +721,7 @@ extern void dhd_del_if(struct dhd_info *dhd, int ifidx);
 extern void dhd_vif_add(struct dhd_info *dhd, int ifidx, char * name);
 extern void dhd_vif_del(struct dhd_info *dhd, int ifidx);
 
-extern void dhd_event(struct dhd_info *dhd, char *evpkt, int evlen, int ifidx);
+extern void dhd_event(struct dhd_info *dhd, char *evpkt, uint evlen, int ifidx);
 extern void dhd_vif_sendup(struct dhd_info *dhd, int ifidx, uchar *cp, int len);
 
 
@@ -748,7 +749,8 @@ extern int dhd_os_d3ack_wait(dhd_pub_t * pub, uint * condition, bool * pending);
 extern int dhd_os_d3ack_wake(dhd_pub_t * pub);
 
 extern bool dhd_is_concurrent_mode(dhd_pub_t *dhd);
-extern int dhd_iovar(dhd_pub_t *pub, int ifidx, char *name, char *cmd_buf, uint cmd_len, int set);
+int dhd_iovar(dhd_pub_t *pub, int ifidx, char *name, char *param_buf, uint param_len,
+	char *res_buf, uint res_len, int set);
 typedef enum cust_gpio_modes {
 	WLAN_RESET_ON,
 	WLAN_RESET_OFF,
