@@ -197,6 +197,7 @@ struct file_data {
 	spinlock_t hlock;
 	struct hlist_head hlst;
 	uint32_t mode;
+	struct mutex map_mutex;
 };
 
 struct fastrpc_device {
@@ -1115,6 +1116,7 @@ static int fastrpc_internal_munmap(struct fastrpc_apps *me,
 	int err = 0;
 	struct fastrpc_mmap *map = 0, *mapfree = 0;
 	struct hlist_node *pos, *n;
+	mutex_lock(&fdata->map_mutex);
 	VERIFY(err, 0 == (err = fastrpc_munmap_on_dsp(me, munmap)));
 	if (err)
 		goto bail;
@@ -1134,6 +1136,7 @@ bail:
 		free_map(mapfree);
 		kfree(mapfree);
 	}
+	mutex_unlock(&fdata->map_mutex);
 	return err;
 }
 
@@ -1150,6 +1153,7 @@ static int fastrpc_internal_mmap(struct fastrpc_apps *me,
 	int num;
 	int err = 0;
 
+	mutex_lock(&fdata->map_mutex);
 	VERIFY(err, 0 != (map = kzalloc(sizeof(*map), GFP_KERNEL)));
 	if (err)
 		goto bail;
@@ -1200,6 +1204,7 @@ static int fastrpc_internal_mmap(struct fastrpc_apps *me,
 		kfree(map);
 	}
 	kfree(pages);
+	mutex_unlock(&fdata->map_mutex);
 	return err;
 }
 
@@ -1257,6 +1262,7 @@ static int fastrpc_device_release(struct inode *inode, struct file *file)
 			free_map(map);
 			kfree(map);
 		}
+		mutex_destroy(&fdata->map_mutex);
 		kfree(fdata);
 		kref_put_mutex(&me->kref, fastrpc_channel_close,
 				&me->smd_mutex);
@@ -1302,6 +1308,7 @@ static int fastrpc_device_open(struct inode *inode, struct file *filp)
 		VERIFY(err, 0 == fastrpc_create_current_dsp_process());
 		if (err)
 			goto bail;
+		mutex_init(&fdata->map_mutex);
 		filp->private_data = fdata;
 bail:
 		if (err) {
