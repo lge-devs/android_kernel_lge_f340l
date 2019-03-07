@@ -1247,6 +1247,7 @@ static void uart_set_termios(struct tty_struct *tty,
 	}
 }
 
+
 /*
  * In 2.4.5, calls to this will be serialized via the BKL in
  *  linux/drivers/char/tty_io.c:tty_release()
@@ -1266,6 +1267,7 @@ static void uart_close(struct tty_struct *tty, struct file *filp)
 	port = &state->port;
 
 	pr_debug("uart_close(%d) called\n", uport->line);
+
 
 	if (tty_port_close_start(port, tty, filp) == 0)
 		return;

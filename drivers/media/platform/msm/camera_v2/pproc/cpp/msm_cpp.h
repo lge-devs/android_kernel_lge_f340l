@@ -182,7 +182,13 @@ struct cpp_device {
 	char *fw_name_bin;
 	struct workqueue_struct *timer_wq;
 	struct msm_cpp_work_t *work;
-
+/* LGE_CHANGE_S, vu3 uses its own patch of vu3 jb. 2014-01-18, jungryoul.choi@lge.com */
+#if !(defined(CONFIG_MACH_MSM8974_VU3_KR))
+/*QCT_PATCH S, fix lockup when start camera with 13M resolution, 2013-10-31, yt.kim@lge.com */
+	uint8_t stream_cnt;
+/*QCT_PATCH E, fix lockup when start camera with 13M resolution, 2013-10-31, yt.kim@lge.com */
+#endif
+/* LGE_CHANGE_E, vu3 uses its own patch of vu3 jb. 2014-01-18, jungryoul.choi@lge.com */
 	int domain_num;
 	struct iommu_domain *domain;
 	struct device *iommu_ctx;

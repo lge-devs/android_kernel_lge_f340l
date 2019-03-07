@@ -29,6 +29,9 @@
 #include "mdss_mdp_formats.h"
 #include "mdss_debug.h"
 
+#ifdef CONFIG_MACH_LGE
+#define QMC_PATCH
+#endif
 enum {
 	MDP_INTR_VSYNC_INTF_0,
 	MDP_INTR_VSYNC_INTF_1,
@@ -460,7 +463,14 @@ int mdss_mdp_put_img(struct mdss_mdp_img_data *data)
 	struct ion_client *iclient = mdss_get_ionclient();
 	if (data->flags & MDP_MEMORY_ID_TYPE_FB) {
 		pr_debug("fb mem buf=0x%x\n", data->addr);
-		fput_light(data->srcp_file, data->p_need);
+#ifdef QMC_PATCH
+		/* LGE_CHANGE
+		 * QMC patch to prevent null point crash
+		 * 2013-09-03, baryun.hwang@lge.com
+		 */
+		if (data->srcp_file != NULL)
+#endif
+			fput_light(data->srcp_file, data->p_need);
 		data->srcp_file = NULL;
 	} else if (data->srcp_file) {
 		pr_debug("pmem buf=0x%x\n", data->addr);

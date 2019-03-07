@@ -80,6 +80,13 @@
 						unsigned int)
 #define MSMFB_ASYNC_BLIT              _IOW(MSMFB_IOCTL_MAGIC, 168, unsigned int)
 
+#define MSMFB_INVERT_PANEL  _IOW(MSMFB_IOCTL_MAGIC, 168, unsigned int)
+
+#if defined(CONFIG_LGE_BROADCAST_TDMB) || defined(CONFIG_LGE_BROADCAST_ONESEG) || defined(LGE_BROADCAST_ONESEG)
+#define MSMFB_DMB_SET_FLAG        _IOW(MSMFB_IOCTL_MAGIC, 169, int)
+#define MSMFB_DMB_SET_CSC_MATRIX  _IOW(MSMFB_IOCTL_MAGIC, 170, struct mdp_csc_cfg)
+#endif /* LGE_BROADCAST */
+
 #define FB_TYPE_3D_PANEL 0x10101010
 #define MDP_IMGTYPE2_START 0x10000
 #define MSMFB_DRIVER_VERSION	0xF9E8D701
@@ -169,7 +176,7 @@ enum {
 #define MDP_BLUR 0x10
 #define MDP_BLEND_FG_PREMULT 0x20000
 #define MDP_IS_FG 0x40000
-#define MDP_SOLID_FILL 0x0000100
+#define MDP_SOLID_FILL 0x00000020
 #define MDP_DEINTERLACE 0x80000000
 #define MDP_SHARPENING  0x40000000
 #define MDP_NO_DMA_BARRIER_START	0x20000000
@@ -227,8 +234,8 @@ struct mdp_img {
  * {3x3} + {3} ccs matrix
  */
 
-#define MDP_CCS_RGB2YUV 	0
-#define MDP_CCS_YUV2RGB 	1
+#define MDP_CCS_RGB2YUV	0
+#define MDP_CCS_YUV2RGB	1
 
 #define MDP_CCS_SIZE	9
 #define MDP_BV_SIZE	3

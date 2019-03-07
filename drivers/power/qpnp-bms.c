@@ -28,6 +28,10 @@
 #include <linux/qpnp/power-on.h>
 #include <linux/of_batterydata.h>
 
+#ifdef CONFIG_MACH_MSM8974_VU3_KR
+#define EXTERNAL_FUELGAUGE
+#endif
+
 /* BMS Register Offsets */
 #define REVISION1			0x0
 #define REVISION2			0x1
@@ -297,21 +301,27 @@ static char *qpnp_bms_supplicants[] = {
 };
 
 static enum power_supply_property msm_bms_power_props[] = {
+#ifndef EXTERNAL_FUELGAUGE
 	POWER_SUPPLY_PROP_CAPACITY,
 	POWER_SUPPLY_PROP_STATUS,
+#endif
 	POWER_SUPPLY_PROP_CURRENT_NOW,
+#ifndef EXTERNAL_FUELGAUGE
 	POWER_SUPPLY_PROP_RESISTANCE,
 	POWER_SUPPLY_PROP_CHARGE_COUNTER,
 	POWER_SUPPLY_PROP_CHARGE_COUNTER_SHADOW,
 	POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
 	POWER_SUPPLY_PROP_CHARGE_FULL,
 	POWER_SUPPLY_PROP_CYCLE_COUNT,
+#endif
 };
 
+#ifndef EXTERNAL_FUELGAUGE
 static int discard_backup_fcc_data(struct qpnp_bms_chip *chip);
 static void backup_charge_cycle(struct qpnp_bms_chip *chip);
 
 static bool bms_reset;
+#endif
 
 static int qpnp_read_wrapper(struct qpnp_bms_chip *chip, u8 *val,
 			u16 base, int count)
@@ -375,6 +385,7 @@ static int qpnp_masked_write(struct qpnp_bms_chip *chip, u16 addr,
 	return qpnp_masked_write_base(chip, chip->base + addr, mask, val);
 }
 
+#ifndef EXTERNAL_FUELGAUGE
 static void bms_stay_awake(struct bms_wakeup_source *source)
 {
 	if (__test_and_clear_bit(0, &source->disabled)) {
@@ -406,6 +417,7 @@ static void disable_bms_irq(struct bms_irq *irq)
 		pr_debug("disabled irq %d\n", irq->irq);
 	}
 }
+#endif
 
 #define HOLD_OREG_DATA		BIT(0)
 static int lock_output_data(struct qpnp_bms_chip *chip)
@@ -470,6 +482,7 @@ static int adjust_vbatt_reading(struct qpnp_bms_chip *chip, int reading_uv)
 						* VBATT_MUL_FACTOR;
 }
 
+#ifndef EXTERNAL_FUELGAUGE
 static int convert_vbatt_uv_to_raw(struct qpnp_bms_chip *chip,
 					int unadjusted_vbatt)
 {
@@ -480,6 +493,7 @@ static int convert_vbatt_uv_to_raw(struct qpnp_bms_chip *chip,
 	return ((scaled_vbatt * V_PER_BIT_DIV_FACTOR) / V_PER_BIT_MUL_FACTOR)
 						+ VADC_INTRINSIC_OFFSET;
 }
+#endif
 
 static inline int convert_vbatt_raw_to_uv(struct qpnp_bms_chip *chip,
 					uint16_t reading)
@@ -525,6 +539,7 @@ static s64 cc_adjust_for_gain(s64 uv, uint16_t gain)
 	return result_uv;
 }
 
+#ifndef EXTERNAL_FUELGAUGE
 static s64 cc_reverse_adjust_for_gain(struct qpnp_bms_chip *chip, s64 uv)
 {
 	struct qpnp_iadc_calib calibration;
@@ -548,6 +563,7 @@ static s64 cc_reverse_adjust_for_gain(struct qpnp_bms_chip *chip, s64 uv)
 	pr_debug("result_uv = %lld\n", result_uv);
 	return result_uv;
 }
+#endif
 
 static int convert_vsense_to_uv(struct qpnp_bms_chip *chip,
 					int16_t reading)
@@ -592,7 +608,7 @@ static int get_battery_current(struct qpnp_bms_chip *chip, int *result_ua)
 	unlock_output_data(chip);
 	mutex_unlock(&chip->bms_output_lock);
 
-	pr_debug("vsense_uv=%duV\n", vsense_uv);
+	pr_info("vsense_uv=%duV\n", vsense_uv);
 	/* cast for signed division */
 	temp_current = div_s64((vsense_uv * 1000000LL),
 				(int)chip->r_sense_uohm);
@@ -602,10 +618,11 @@ static int get_battery_current(struct qpnp_bms_chip *chip, int *result_ua)
 		pr_debug("error compensation failed: %d\n", rc);
 
 	*result_ua = temp_current;
-	pr_debug("err compensated ibat=%duA\n", *result_ua);
+	pr_info("err compensated ibat=%duA\n", *result_ua);
 	return 0;
 }
 
+#ifndef EXTERNAL_FUELGAUGE
 static int get_battery_voltage(struct qpnp_bms_chip *chip, int *result_uv)
 {
 	int rc;
@@ -706,6 +723,7 @@ static void convert_and_store_ocv(struct qpnp_bms_chip *chip,
 	chip->software_cc_uah = 0;
 	pr_debug("last_good_ocv_uv = %d\n", raw->last_good_ocv_uv);
 }
+#endif
 
 #define CLEAR_CC			BIT(7)
 #define CLEAR_SHDW_CC			BIT(6)
@@ -737,6 +755,7 @@ static void reset_cc(struct qpnp_bms_chip *chip, u8 flags)
 	mutex_unlock(&chip->bms_output_lock);
 }
 
+#ifndef EXTERNAL_FUELGAUGE
 static int get_battery_status(struct qpnp_bms_chip *chip)
 {
 	union power_supply_propval ret = {0,};
@@ -1387,7 +1406,8 @@ static int calculate_unusable_charge_uah(struct qpnp_bms_chip *chip,
 		return (params->fcc_uah * 3) / 100;
 
 	uuc_uah_iavg = calculate_termination_uuc(chip, params, batt_temp,
-						uuc_iavg_ma, &pc_unusable);
+						uuc_iavg_ma,
+						&pc_unusable);
 	pr_debug("uuc_iavg_ma = %d uuc with iavg = %d\n",
 						uuc_iavg_ma, uuc_uah_iavg);
 
@@ -1458,6 +1478,7 @@ static int get_prop_bms_batt_resistance(struct qpnp_bms_chip *chip)
 {
 	return chip->rbatt_mohm * 1000;
 }
+#endif
 
 /* Returns instantaneous current in uA */
 static int get_prop_bms_current_now(struct qpnp_bms_chip *chip)
@@ -1472,6 +1493,9 @@ static int get_prop_bms_current_now(struct qpnp_bms_chip *chip)
 	return result_ua;
 }
 
+#ifdef EXTERNAL_FUELGAUGE
+#define CALIB_WRKARND_DIG_MAJOR_MAX		0x03
+#else
 /* Returns coulomb counter in uAh */
 static int get_prop_bms_charge_counter(struct qpnp_bms_chip *chip)
 {
@@ -3336,6 +3360,7 @@ static void qpnp_bms_external_power_changed(struct power_supply *psy)
 	batfet_status_check(chip);
 	battery_status_check(chip);
 }
+#endif
 
 static int qpnp_bms_power_get_property(struct power_supply *psy,
 					enum power_supply_property psp,
@@ -3345,15 +3370,18 @@ static int qpnp_bms_power_get_property(struct power_supply *psy,
 								bms_psy);
 
 	switch (psp) {
+#ifndef EXTERNAL_FUELGAUGE
 	case POWER_SUPPLY_PROP_CAPACITY:
 		val->intval = get_prop_bms_capacity(chip);
 		break;
 	case POWER_SUPPLY_PROP_STATUS:
 		val->intval = chip->battery_status;
 		break;
+#endif
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
 		val->intval = get_prop_bms_current_now(chip);
 		break;
+#ifndef EXTERNAL_FUELGAUGE
 	case POWER_SUPPLY_PROP_RESISTANCE:
 		val->intval = get_prop_bms_batt_resistance(chip);
 		break;
@@ -3372,12 +3400,14 @@ static int qpnp_bms_power_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CYCLE_COUNT:
 		val->intval = chip->charge_cycles;
 		break;
+#endif
 	default:
 		return -EINVAL;
 	}
 	return 0;
 }
 
+#ifndef EXTERNAL_FUELGAUGE
 #define OCV_USE_LIMIT_EN		BIT(7)
 static int set_ocv_voltage_thresholds(struct qpnp_bms_chip *chip,
 					int low_voltage_threshold,
@@ -3678,6 +3708,7 @@ assign_data:
 
 	return 0;
 }
+#endif
 
 static int bms_get_adc(struct qpnp_bms_chip *chip,
 					struct spmi_device *spmi)
@@ -3821,6 +3852,7 @@ static inline int bms_read_properties(struct qpnp_bms_chip *chip)
 	return 0;
 }
 
+#ifndef EXTERNAL_FUELGAUGE
 static inline void bms_initialize_constants(struct qpnp_bms_chip *chip)
 {
 	chip->prev_pc_unusable = -EINVAL;
@@ -3876,6 +3908,7 @@ static int bms_request_irqs(struct qpnp_bms_chip *chip)
 	enable_irq_wake(chip->ocv_thr_irq.irq);
 	return 0;
 }
+#endif
 
 #define REG_OFFSET_PERP_TYPE			0x04
 #define REG_OFFSET_PERP_SUBTYPE			0x05
@@ -3909,6 +3942,7 @@ static int register_spmi(struct qpnp_bms_chip *chip, struct spmi_device *spmi)
 			return -ENXIO;
 		}
 
+#ifndef EXTERNAL_FUELGAUGE
 		pr_debug("Node name = %s\n", spmi_resource->of_node->name);
 
 		if (strcmp("qcom,batt-pres-status",
@@ -3920,6 +3954,7 @@ static int register_spmi(struct qpnp_bms_chip *chip, struct spmi_device *spmi)
 			chip->soc_storage_addr = resource->start;
 			continue;
 		}
+#endif
 
 		rc = qpnp_read_wrapper(chip, &type,
 				resource->start + REG_OFFSET_PERP_TYPE, 1);
@@ -3936,11 +3971,13 @@ static int register_spmi(struct qpnp_bms_chip *chip, struct spmi_device *spmi)
 
 		if (type == BMS_BMS_TYPE && subtype == BMS_BMS1_SUBTYPE) {
 			chip->base = resource->start;
+#ifndef EXTERNAL_FUELGAUGE
 			rc = bms_find_irqs(chip, spmi_resource);
 			if (rc) {
 				pr_err("Could not find irqs\n");
 				return rc;
 			}
+#endif
 		} else if (type == BMS_IADC_TYPE
 				&& (subtype == BMS_IADC1_SUBTYPE
 				|| subtype == BMS_IADC2_SUBTYPE)) {
@@ -3959,6 +3996,7 @@ static int register_spmi(struct qpnp_bms_chip *chip, struct spmi_device *spmi)
 		dev_err(&spmi->dev, "BMS_IADC peripheral was not registered\n");
 		return -EINVAL;
 	}
+#ifndef EXTERNAL_FUELGAUGE
 	if (chip->soc_storage_addr == 0) {
 		/* default to dvdd backed BMS data reg0 */
 		chip->soc_storage_addr = chip->base + SOC_STORAGE_REG;
@@ -3967,6 +4005,7 @@ static int register_spmi(struct qpnp_bms_chip *chip, struct spmi_device *spmi)
 	pr_debug("bms-base = 0x%04x, iadc-base = 0x%04x, bat-pres-reg = 0x%04x, soc-storage-reg = 0x%04x\n",
 			chip->base, chip->iadc_base,
 			chip->batt_pres_addr, chip->soc_storage_addr);
+#endif
 	return 0;
 }
 
@@ -4039,7 +4078,7 @@ static int read_iadc_channel_select(struct qpnp_bms_chip *chip)
 			return rc;
 		}
 		chip->r_sense_uohm = rds_rsense_nohm/1000;
-		pr_debug("rds_rsense = %d nOhm, saved as %d uOhm\n",
+		pr_info("rds_rsense = %d nOhm, saved as %d uOhm\n",
 					rds_rsense_nohm, chip->r_sense_uohm);
 	}
 	/* prevent shorting of leads by IADC_BMS when external Rsense is used */
@@ -4073,6 +4112,7 @@ static int read_iadc_channel_select(struct qpnp_bms_chip *chip)
 	return 0;
 }
 
+#ifndef EXTERNAL_FUELGAUGE
 static int refresh_die_temp_monitor(struct qpnp_bms_chip *chip)
 {
 	struct qpnp_vadc_result result;
@@ -4128,12 +4168,17 @@ static int setup_die_temp_monitoring(struct qpnp_bms_chip *chip)
 	pr_debug("setup complete\n");
 	return 0;
 }
+#endif
 
 static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 {
 	struct qpnp_bms_chip *chip;
+#ifndef EXTERNAL_FUELGAUGE
 	bool warm_reset;
 	int rc, vbatt;
+#else
+	int rc;
+#endif
 
 	chip = devm_kzalloc(&spmi->dev, sizeof(struct qpnp_bms_chip),
 			GFP_KERNEL);
@@ -4155,10 +4200,12 @@ static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 	mutex_init(&chip->status_lock);
 	init_waitqueue_head(&chip->bms_wait_queue);
 
+#ifndef EXTERNAL_FUELGAUGE
 	warm_reset = qpnp_pon_is_warm_reset();
 	rc = warm_reset;
 	if (rc < 0)
 		goto error_read;
+#endif
 
 	rc = register_spmi(chip, spmi);
 	if (rc) {
@@ -4166,6 +4213,7 @@ static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 		goto error_resource;
 	}
 
+#ifndef EXTERNAL_FUELGAUGE
 	rc = qpnp_read_wrapper(chip, &chip->revision1,
 			chip->base + REVISION1, 1);
 	if (rc) {
@@ -4180,6 +4228,7 @@ static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 		goto error_read;
 	}
 	pr_debug("BMS version: %hhu.%hhu\n", chip->revision2, chip->revision1);
+#endif
 
 	rc = qpnp_read_wrapper(chip, &chip->iadc_bms_revision2,
 			chip->iadc_base + REVISION2, 1);
@@ -4209,6 +4258,7 @@ static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 		goto error_read;
 	}
 
+#ifndef EXTERNAL_FUELGAUGE
 	if (chip->use_ocv_thresholds) {
 		rc = set_ocv_voltage_thresholds(chip,
 				chip->ocv_low_threshold_uv,
@@ -4227,7 +4277,6 @@ static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 	}
 
 	bms_initialize_constants(chip);
-
 	wakeup_source_init(&chip->soc_wake_source.source, "qpnp_soc_wake");
 	wake_lock_init(&chip->low_voltage_wake_lock, WAKE_LOCK_SUSPEND,
 			"qpnp_low_voltage_lock");
@@ -4260,7 +4309,12 @@ static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 				attempt_learning_new_fcc(chip);
 		}
 	}
+#endif
 
+	dev_set_drvdata(&spmi->dev, chip);
+	device_init_wakeup(&spmi->dev, 1);
+
+#ifndef EXTERNAL_FUELGAUGE
 	rc = setup_vbat_monitoring(chip);
 	if (rc < 0) {
 		pr_err("failed to set up voltage notifications: %d\n", rc);
@@ -4278,15 +4332,17 @@ static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 	battery_status_check(chip);
 
 	calculate_soc_work(&(chip->calculate_soc_delayed_work.work));
-
+#endif
 	/* setup & register the battery power supply */
 	chip->bms_psy.name = "bms";
 	chip->bms_psy.type = POWER_SUPPLY_TYPE_BMS;
 	chip->bms_psy.properties = msm_bms_power_props;
 	chip->bms_psy.num_properties = ARRAY_SIZE(msm_bms_power_props);
 	chip->bms_psy.get_property = qpnp_bms_power_get_property;
+#ifndef EXTERNAL_FUELGAUGE
 	chip->bms_psy.external_power_changed =
 		qpnp_bms_external_power_changed;
+#endif
 	chip->bms_psy.supplied_to = qpnp_bms_supplicants;
 	chip->bms_psy.num_supplicants = ARRAY_SIZE(qpnp_bms_supplicants);
 
@@ -4298,6 +4354,7 @@ static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 	}
 
 	chip->bms_psy_registered = true;
+#ifndef EXTERNAL_FUELGAUGE
 	vbatt = 0;
 	rc = get_battery_voltage(chip, &vbatt);
 	if (rc) {
@@ -4315,16 +4372,23 @@ static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 	pr_info("probe success: soc =%d vbatt = %d ocv = %d r_sense_uohm = %u warm_reset = %d\n",
 			get_prop_bms_capacity(chip), vbatt, chip->last_ocv_uv,
 			chip->r_sense_uohm, warm_reset);
+#else
+	pr_info("probe success: r_sense_uohm = %u\n",chip->r_sense_uohm);
+#endif
 	return 0;
 
 unregister_dc:
 	chip->bms_psy_registered = false;
 	power_supply_unregister(&chip->bms_psy);
+#ifndef EXTERNAL_FUELGAUGE
 error_setup:
+#endif
 	dev_set_drvdata(&spmi->dev, NULL);
+#ifndef EXTERNAL_FUELGAUGE
 	wakeup_source_trash(&chip->soc_wake_source.source);
 	wake_lock_destroy(&chip->low_voltage_wake_lock);
 	wake_lock_destroy(&chip->cv_wake_lock);
+#endif
 error_resource:
 error_read:
 	return rc;
@@ -4336,6 +4400,7 @@ static int qpnp_bms_remove(struct spmi_device *spmi)
 	return 0;
 }
 
+#ifndef EXTERNAL_FUELGAUGE
 static int bms_suspend(struct device *dev)
 {
 	struct qpnp_bms_chip *chip = dev_get_drvdata(dev);
@@ -4378,6 +4443,7 @@ static const struct dev_pm_ops qpnp_bms_pm_ops = {
 	.resume		= bms_resume,
 	.suspend	= bms_suspend,
 };
+#endif
 
 static struct spmi_driver qpnp_bms_driver = {
 	.probe		= qpnp_bms_probe,
@@ -4386,7 +4452,9 @@ static struct spmi_driver qpnp_bms_driver = {
 		.name		= QPNP_BMS_DEV_NAME,
 		.owner		= THIS_MODULE,
 		.of_match_table	= qpnp_bms_match_table,
+#ifndef EXTERNAL_FUELGAUGE
 		.pm		= &qpnp_bms_pm_ops,
+#endif
 	},
 };
 

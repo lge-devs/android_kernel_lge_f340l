@@ -67,13 +67,21 @@
 #define MTP_RESPONSE_OK             0x2001
 #define MTP_RESPONSE_DEVICE_BUSY    0x2019
 
+#ifdef CONFIG_USB_G_LGE_ANDROID
+unsigned int mtp_rx_req_len = 65536;
+#else
 unsigned int mtp_rx_req_len = MTP_BULK_BUFFER_SIZE;
+#endif
 module_param(mtp_rx_req_len, uint, S_IRUGO | S_IWUSR);
 
 unsigned int mtp_tx_req_len = MTP_BULK_BUFFER_SIZE;
 module_param(mtp_tx_req_len, uint, S_IRUGO | S_IWUSR);
 
+#ifdef CONFIG_USB_G_LGE_ANDROID
+unsigned int mtp_tx_reqs = 16;
+#else
 unsigned int mtp_tx_reqs = MTP_TX_REQ_MAX;
+#endif
 module_param(mtp_tx_reqs, uint, S_IRUGO | S_IWUSR);
 
 static const char mtp_shortname[] = "mtp_usb";
@@ -321,6 +329,40 @@ struct mtp_ext_config_desc_function {
 	__u8	reserved[6];
 };
 
+#ifdef NOT_CONFIG_USB_G_LGE_ANDROID
+/* LGE_CHANGE
+ * MS Ext Desciptor for MTP and adb (to use in testing driver).
+ * NOTE: this remains for reference code about MTP setting with ADB enabled.
+ * Therefore we do not use this officially(so NOT_ prefix is used).
+ * 2011-02-09, hyunhui.park@lge.com
+ */
+
+/* MTP Extended Configuration Descriptor */
+struct {
+	struct mtp_ext_config_desc_header	header;
+	struct mtp_ext_config_desc_function    function;
+	struct mtp_ext_config_desc_function    adb_function;
+} mtp_ext_config_desc = {
+	.header = {
+		.dwLength = __constant_cpu_to_le32(sizeof(mtp_ext_config_desc)),
+		.bcdVersion = __constant_cpu_to_le16(0x0100),
+		.wIndex = __constant_cpu_to_le16(4),
+		/* It has two functions (mtp, adb) */
+		.bCount = __constant_cpu_to_le16(2),
+	},
+	.function = {
+		.bFirstInterfaceNumber = 0,
+		.bInterfaceCount = 1,
+		.compatibleID = { 'M', 'T', 'P' },
+	},
+	/* adb */
+	.adb_function = {
+		.bFirstInterfaceNumber = 1,
+		.bInterfaceCount = 1,
+	},
+};
+
+#else /* This is Google Original */
 /* MTP Extended Configuration Descriptor */
 struct {
 	struct mtp_ext_config_desc_header	header;
@@ -338,6 +380,7 @@ struct {
 		.compatibleID = { 'M', 'T', 'P' },
 	},
 };
+#endif
 
 struct mtp_device_status {
 	__le16	wLength;
@@ -563,6 +606,10 @@ static ssize_t mtp_read(struct file *fp, char __user *buf,
 
 	DBG(cdev, "mtp_read(%d)\n", count);
 
+#ifdef CONFIG_USB_G_LGE_ANDROID
+	if (!dev->ep_out)
+		return -EINVAL;
+#endif
 	len = ALIGN(count, dev->ep_out->maxpacket);
 
 	if (len > mtp_rx_req_len)
@@ -856,7 +903,11 @@ static void receive_file_work(struct work_struct *data)
 	count = dev->xfer_file_length;
 
 	DBG(cdev, "receive_file_work(%lld)\n", count);
+#ifdef CONFIG_USB_G_LGE_ANDROID
+	if (dev->ep_out && !IS_ALIGNED(count, dev->ep_out->maxpacket))
+#else
 	if (!IS_ALIGNED(count, dev->ep_out->maxpacket))
+#endif
 		DBG(cdev, "%s- count(%lld) not multiple of mtu(%d)\n", __func__,
 						count, dev->ep_out->maxpacket);
 
@@ -1070,6 +1121,12 @@ out:
 static int mtp_open(struct inode *ip, struct file *fp)
 {
 	printk(KERN_INFO "mtp_open\n");
+#ifdef CONFIG_USB_G_LGE_MULTIPLE_CONFIGURATION
+    if( nSetConfig >= 2 ) {
+        printk(KERN_INFO "%s : Set Config number is %d\n", __func__, nSetConfig);
+        return -EACCES;
+    }
+#endif //CONFIG_USB_G_LGE_MULTIPLE_CONFIGURATION
 	if (mtp_lock(&_mtp_dev->open_excl))
 		return -EBUSY;
 
@@ -1145,7 +1202,7 @@ static int mtp_ctrlrequest(struct usb_composite_dev *cdev,
 		DBG(cdev, "class request: %d index: %d value: %d length: %d\n",
 			ctrl->bRequest, w_index, w_value, w_length);
 
-		if (ctrl->bRequest == MTP_REQ_CANCEL && w_index == 0
+		if (ctrl->bRequest == MTP_REQ_CANCEL && (w_index == 0 || w_index == 3)
 				&& w_value == 0) {
 			DBG(cdev, "MTP_REQ_CANCEL\n");
 
@@ -1163,7 +1220,7 @@ static int mtp_ctrlrequest(struct usb_composite_dev *cdev,
 			 */
 			value = w_length;
 		} else if (ctrl->bRequest == MTP_REQ_GET_DEVICE_STATUS
-				&& w_index == 0 && w_value == 0) {
+				&& (w_index == 0 || w_index == 3) && w_value == 0) {
 			struct mtp_device_status *status = cdev->req->buf;
 			status->wLength =
 				__constant_cpu_to_le16(sizeof(*status));
@@ -1212,6 +1269,11 @@ mtp_function_bind(struct usb_configuration *c, struct usb_function *f)
 	if (id < 0)
 		return id;
 	mtp_interface_desc.bInterfaceNumber = id;
+#ifdef CONFIG_USB_G_LGE_ANDROID
+	/* for ptp & MS desc */
+	ptp_interface_desc.bInterfaceNumber = id;
+	mtp_ext_config_desc.function.bFirstInterfaceNumber = id;
+#endif
 
 	/* allocate endpoints */
 	ret = mtp_create_bulk_endpoints(dev, &mtp_fullspeed_in_desc,

@@ -98,8 +98,13 @@ next:
 
 	*bh = sb_bread(sb, phys);
 	if (*bh == NULL) {
+		#ifndef CONFIG_MACH_LGE
+		/* LGE_UPDATE, 2013-07-15, G2-FS@lge.com
+		 * Disable below log because it is printed too frequently and it can cause "callbacks suppressed" status.
+		 */
 		fat_msg(sb, KERN_ERR, "Directory bread(block %llu) failed",
 		       (llu)phys);
+		#endif
 		/* skip this block */
 		*pos = (iblock + 1) << sb->s_blocksize_bits;
 		goto next;

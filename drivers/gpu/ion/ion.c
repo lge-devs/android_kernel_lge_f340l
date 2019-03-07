@@ -808,10 +808,13 @@ struct ion_client *ion_client_create(struct ion_device *dev,
 						dev->clients_debug_root,
 						client, &debug_client_fops);
 	if (!client->debug_root) {
-		char buf[256], *path;
-		path = dentry_path(dev->clients_debug_root, buf, 256);
-		pr_err("Failed to created client debugfs at %s/%s\n",
-			path, client->name);
+		if(strncmp(name, "camera", 6)) // LGE_CHANGE, do not print logs if it is cameras, 2014-02-05, jungki.kim@lge.com
+		{
+			char buf[256], *path;
+			path = dentry_path(dev->clients_debug_root, buf, 256);
+			pr_err("Failed to created client debugfs at %s/%s, %s\n",
+				path, client->name, name);
+		}
 	}
 
 	up_write(&dev->lock);

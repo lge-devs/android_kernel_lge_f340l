@@ -871,7 +871,12 @@ static int sched_rt_runtime_exceeded(struct rt_rq *rt_rq)
 
 			if (!once) {
 				once = true;
+#ifdef CONFIG_MACH_LGE
+				printk_sched("sched: RT throttling activated => task_name [%s]\n", \
+					rt_rq->rq->curr->comm);
+#else
 				printk_sched("sched: RT throttling activated\n");
+#endif
 			}
 		} else {
 			/*
@@ -1354,8 +1359,12 @@ static struct task_struct *_pick_next_task_rt(struct rq *rq)
 	if (!rt_rq->rt_nr_running)
 		return NULL;
 
-	if (rt_rq_throttled(rt_rq))
-		return NULL;
+#ifdef CONFIG_MACH_MSM8974_Z_US
+      if(rq->online && rt_rq_throttled(rt_rq))
+#else
+      if(rt_rq_throttled(rt_rq))
+#endif
+            return NULL;
 
 	do {
 		rt_se = pick_next_rt_entity(rq, rt_rq);
@@ -1364,6 +1373,12 @@ static struct task_struct *_pick_next_task_rt(struct rq *rq)
 	} while (rt_rq);
 
 	p = rt_task_of(rt_se);
+#ifdef CONFIG_MACH_MSM8974_Z_US
+    if (rq->curr->sched_class == &fair_sched_class) {
+        rq->skip_clock_update = 0;
+        update_rq_clock(rq);
+    }
+#endif
 	p->se.exec_start = rq->clock_task;
 
 	return p;

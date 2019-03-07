@@ -36,5 +36,6 @@ struct msm_buf_mngr_device {
 	spinlock_t buf_q_spinlock;
 	struct msm_sd_subdev subdev;
 	struct msm_sd_req_vb2_q vb2_ops;
+	uint32_t msm_buf_mngr_open_cnt;  /* LGE_CHANGE, Official patch of QCT to clean up generic buffer, 2014-01-24, jungki.kim@lge.com */
 };
 #endif

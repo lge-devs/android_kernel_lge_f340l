@@ -25,6 +25,7 @@
 #include <sound/pcm.h>
 #include <sound/initval.h>
 #include <sound/control.h>
+#include <sound/q6audio-v2.h>
 #include <asm/dma.h>
 #include <linux/dma-mapping.h>
 #include <linux/msm_audio_ion.h>
@@ -187,6 +188,7 @@ static void event_handler(uint32_t opcode,
 		} else {
 			pr_debug("%s: reclaim flushed buf in_count %x\n",
 				__func__, atomic_read(&prtd->in_count));
+			prtd->pcm_irq_pos += prtd->pcm_count;
 			atomic_inc(&prtd->in_count);
 			if (atomic_read(&prtd->in_count) == prtd->periods) {
 				pr_info("%s: reclaimed all bufs\n", __func__);
@@ -916,6 +918,7 @@ static __devinit int msm_pcm_probe(struct platform_device *pdev)
 	int rc;
 	int id;
 	struct msm_plat_data *pdata;
+	const char *latency_level;
 
 	rc = of_property_read_u32(pdev->dev.of_node,
 				"qcom,msm-pcm-dsp-id", &id);
@@ -932,10 +935,18 @@ static __devinit int msm_pcm_probe(struct platform_device *pdev)
 	}
 
 	if (of_property_read_bool(pdev->dev.of_node,
-				"qcom,msm-pcm-low-latency"))
-		pdata->perf_mode = 1;
+				"qcom,msm-pcm-low-latency")) {
+
+		pdata->perf_mode = LOW_LATENCY_PCM_MODE;
+		rc = of_property_read_string(pdev->dev.of_node,
+			"qcom,latency-level", &latency_level);
+		if (!rc) {
+			if (!strcmp(latency_level, "ultra"))
+				pdata->perf_mode = ULTRA_LOW_LATENCY_PCM_MODE;
+		}
+	}
 	else
-		pdata->perf_mode = 0;
+		pdata->perf_mode = LEGACY_PCM_MODE;
 
 	dev_set_drvdata(&pdev->dev, pdata);
 
