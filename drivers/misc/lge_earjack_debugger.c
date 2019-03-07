@@ -49,7 +49,7 @@ extern int msm_serial_set_uart_console(int enable);
 static int earjack_debugger_detected(void *dev)
 {
 //[START] VU3 detects earjack debugger even though it doesn't have it. When it's detected, it starts showing UART log and this logging makes device performance low. gunmin.lee@lge.com 2013/07/15
-#if defined (CONFIG_MACH_MSM8974_VU3_KR) || defined (CONFIG_MACH_MSM8974_Z_US) || defined(CONFIG_MACH_MSM8974_Z_CA)
+#if defined CONFIG_MACH_MSM8974_VU3_KR
 	printk("earjack debugger is detected on VU3 but do not allow to use it!");
 	return 0;
 #else

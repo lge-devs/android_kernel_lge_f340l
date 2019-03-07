@@ -31,6 +31,6 @@ if [ ! -d "$OUT_PATH" ] ; then
 fi
 
 ${WORK_PATH}/lg_dtc -o $OUT_PATH/$DTS_NAME\
- -D -I dts -O dts -H specific -s ./$DTS_PATH
+ -I dts -O dts -H specific -s ./$DTS_PATH
 ${WORK_PATH}/lg_dtc -o $OUT_PATH/$DTS_NAME.2\
- -D -I dts -O dts -H specific2 -s ./$DTS_PATH
+ -I dts -O dts -H specific2 -s ./$DTS_PATH

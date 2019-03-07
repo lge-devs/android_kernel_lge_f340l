@@ -2436,9 +2436,6 @@ int es325_codec_wakeup(void)
 
 	mutex_lock(&es325->power_lock);
 
-	msm_slim_vote_func(es325->gen0_client);
-	usleep_range(10000, 11000);
-
 	if (es325->power_state == ES325_POWER_AWAKE) {
 		dev_err(dev,
 			"Chip is already awake. power_state=%d\n",
@@ -2461,7 +2458,7 @@ retry:
 	ret = gpio_direction_output(es325->pdata->wakeup_gpio, 0);
 	if (ret < 0)
 		dev_err(dev, "%s(): es325_wakeup %d direction failed", __func__, es325->pdata->wakeup_gpio);
-	msleep(30);
+	usleep_range(WAKEUP_PIN_DETECT_TIME, WAKEUP_PIN_DETECT_TIME+1000);
 
 	/* Poll until the es325 is ready to accept a command.
 	* Wait for 5ms, return error if it's not responding.
@@ -2473,7 +2470,7 @@ retry:
 	 if (rc < 0) {
 	        dev_err(dev, "Sync write failed. retry cnt=%d\n", cnt+1);
 	        /* wait 5ms for stable */
-	        msleep(30);
+	        usleep_range(WAKEUP_PIN_DETECT_TIME, WAKEUP_PIN_DETECT_TIME+1000);
 	 } else
 	            cnt = WAKEUP_PIN_DETECT_MAX_CNT;
 	}
@@ -2482,7 +2479,7 @@ retry:
 		goto EXIT_WAKEUP;
 	}
 
-	msleep(30);
+	usleep_range(WAKEUP_PIN_DETECT_TIME, WAKEUP_PIN_DETECT_TIME+1000);
 	memset(msg, 0, sizeof (msg));
 
 	for (cnt=0; cnt<WAKEUP_PIN_DETECT_MAX_CNT; cnt++) {
@@ -2490,7 +2487,7 @@ retry:
 					msg, 4, 1);
 		if (rc == 0)
 			goto EXIT_WAKEUP;
-		msleep(30);
+		usleep_range(WAKEUP_PIN_DETECT_TIME, WAKEUP_PIN_DETECT_TIME+1000);
 	}
 	dev_warn(dev, "First sync attempt after sleep failed. rc=%d\n", rc);
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -30,7 +30,15 @@ struct mdss_dsi_ctrl_pdata;
 
 #define MDSS_DSI_MRPS	0x04  /* Maximum Return Packet Size */
 
-#define MDSS_DSI_LEN 10 /* 4 x 4 - 4 - 2, bytes dcs header+crc-align  */
+#ifdef CONFIG_LGE_ESD_CHECK
+/* LGE_CHANGE_S
+* change code for ESD check
+* 2013-04-08, seojin.lee@lge.com
+*/
+#define MDSS_DSI_LEN 44
+#else
+#define MDSS_DSI_LEN 8 /* 4 x 4 - 6 - 2, bytes dcs header+crc-align  */
+#endif
 
 struct dsi_buf {
 	u32 *hdr;	/* dsi host header */
@@ -40,7 +48,6 @@ struct dsi_buf {
 	char *data;	/* buffer */
 	int len;	/* data length */
 	dma_addr_t dmap; /* mapped dma addr */
-	int read_cnt;
 };
 
 /* dcs read/write */
@@ -99,8 +106,6 @@ struct dsi_cmd_desc {
 #define CMD_REQ_COMMIT  0x0002
 #define CMD_CLK_CTRL    0x0004
 #define CMD_REQ_NO_MAX_PKT_SIZE 0x0008
-#define CMD_REQ_LP_MODE 0x0010
-#define CMD_REQ_HS_MODE 0x0020
 
 struct dcs_cmd_req {
 	struct dsi_cmd_desc *cmds;

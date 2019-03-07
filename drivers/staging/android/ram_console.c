@@ -32,6 +32,7 @@ static size_t bootinfo_size;
   * this ECC use cpu-power intensively that lead  slow down a boot time
   */
 #define USE_RAM_CONSOLE_ECC	false
+
 static void
 ram_console_write(struct console *console, const char *s, unsigned int count)
 {

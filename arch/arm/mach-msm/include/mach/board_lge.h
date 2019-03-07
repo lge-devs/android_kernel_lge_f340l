@@ -1,42 +1,6 @@
 #ifndef __ASM_ARCH_MSM_BOARD_LGE_H
 #define __ASM_ARCH_MSM_BOARD_LGE_H
 
-#if defined (CONFIG_MACH_MSM8974_G3_GLOBAL_COM)
-typedef enum {
-	HW_REV_EVB1 = 0,
-	HW_REV_EVB2,
-	HW_REV_A,
-	HW_REV_A1,
-	HW_REV_B,
-	HW_REV_C,
-	HW_REV_D,
-	HW_REV_E,
-	HW_REV_G,
-	HW_REV_H,
-	HW_REV_1_0,
-	HW_REV_1_1,
-	HW_REV_1_2,
-	HW_REV_MAX
-} hw_rev_type;
-#elif defined (CONFIG_MACH_MSM8974_G3_KDDI)
-typedef enum {
-	HW_REV_EVB1 = 0,
-	HW_REV_EVB2,
-	HW_REV_A,
-	HW_REV_A1,
-	HW_REV_B,
-	HW_REV_C,
-	HW_REV_D,
-	HW_REV_E,
-	HW_REV_F,
-	HW_REV_G,
-	HW_REV_H,
-	HW_REV_1_0,
-	HW_REV_1_1,
-	HW_REV_1_2,
-	HW_REV_MAX
-} hw_rev_type;
-#elif defined (CONFIG_MACH_MSM8974_DZNY_DCM)
 typedef enum {
 	HW_REV_EVB1 = 0,
 	HW_REV_EVB2,
@@ -53,24 +17,6 @@ typedef enum {
 	HW_REV_1_2,
 	HW_REV_MAX
 } hw_rev_type;
-#else
-typedef enum {
-	HW_REV_EVB1 = 0,
-	HW_REV_EVB2,
-	HW_REV_A,
-	HW_REV_B,
-	HW_REV_C,
-	HW_REV_D,
-	HW_REV_E,
-	HW_REV_F,
-	HW_REV_G,
-	HW_REV_H,
-	HW_REV_1_0,
-	HW_REV_1_1,
-	HW_REV_1_2,
-	HW_REV_MAX
-} hw_rev_type;
-#endif
 
 extern char *rev_str[];
 
@@ -102,10 +48,8 @@ struct chg_cable_info {
 };
 
 void get_cable_data_from_dt(void *of_node);
-
-struct qpnp_vadc_chip;
-int lge_pm_get_cable_info(struct qpnp_vadc_chip *, struct chg_cable_info *);
-void lge_pm_read_cable_info(struct qpnp_vadc_chip *);
+int lge_pm_get_cable_info(struct chg_cable_info *);
+void lge_pm_read_cable_info(void);
 acc_cable_type lge_pm_get_cable_type(void);
 unsigned lge_pm_get_ta_current(void);
 unsigned lge_pm_get_usb_current(void);
@@ -120,10 +64,8 @@ struct pseudo_batt_info_type {
 	int capacity;
 	int charging;
 };
-
-struct pseudo_batt_info_type;
-void pseudo_batt_set(struct pseudo_batt_info_type *);
 #endif
+
 #ifdef CONFIG_LGE_SUPPORT_LCD_MAKER_ID
 typedef enum {
 	LCD_RENESAS_LGD = 0,
@@ -146,21 +88,16 @@ enum lge_boot_mode_type {
 	LGE_BOOT_MODE_CHARGERLOGO,
 	LGE_BOOT_MODE_FACTORY,
 	LGE_BOOT_MODE_FACTORY2,
-	LGE_BOOT_MODE_FACTORY3,
 	LGE_BOOT_MODE_PIFBOOT,
 	LGE_BOOT_MODE_PIFBOOT2,
-	LGE_BOOT_MODE_PIFBOOT3,
+	LGE_BOOT_MODE_MINIOS    /* LGE_UPDATE for MINIOS2.0 */
 };
-enum lge_boot_mode_type lge_get_boot_mode(void);
+
 int lge_get_factory_boot(void);
-int lge_get_factory_cable(void);
+int get_lge_frst_status(void);
 
 #ifdef CONFIG_MACH_MSM8974_G2_VZW
 int lge_get_battery_low(void);
-#endif
-
-#ifdef CONFIG_USB_G_LGE_ANDROID
-void __init lge_add_android_usb_devices(void);
 #endif
 
 #if defined(CONFIG_LCD_KCAL)
@@ -180,6 +117,8 @@ struct kcal_platform_data {
 	int (*refresh_display) (void);
 };
 #endif /* CONFIG_LCD_KCAL */
+
+enum lge_boot_mode_type lge_get_boot_mode(void);
 
 enum lge_laf_mode_type {
 	LGE_LAF_MODE_NORMAL = 0,
@@ -216,10 +155,6 @@ extern void lge_set_uart_mode(unsigned int um);
 #define LGE_PERSISTENT_RAM_SIZE (SZ_1M)
 #endif
 
-extern int lge_get_bootreason(void);
-
-void xo_therm_logging(void);
-
 #if defined(CONFIG_ANDROID_RAM_CONSOLE)
 #define LGE_RAM_CONSOLE_SIZE (128 * SZ_1K * 2)
 #endif
@@ -236,9 +171,6 @@ void __init lge_add_persist_ram_devices(void);
 void __init lge_add_lcd_misc_devices(void);
 #endif
 
-int gpio_debug_init(void);
-void gpio_debug_print(void);
-
 #if defined(CONFIG_LCD_KCAL)
 /* LGE_CHANGE_S
 * change code for LCD KCAL
@@ -250,20 +182,28 @@ void __init lge_add_lcd_kcal_devices(void);
 void __init lge_add_qfprom_devices(void);
 #endif
 
-#ifdef CONFIG_LGE_DIAG_USB_ACCESS_LOCK
+#ifdef CONFIG_LGE_ECO_MODE
+void __init lge_add_lge_kernel_devices(void);
+#endif
+
+#ifdef CONFIG_LGE_DIAG_ENABLE_SYSFS
 void __init lge_add_diag_devices(void);
 #endif
+
+#if defined(CONFIG_LGE_PM) && defined(CONFIG_DEBUG_FS)
+int gpio_debug_init(void);
+void gpio_debug_print(void);
+#else
+static inline int gpio_debug_init(void) { return 0; }
+static inline void gpio_debug_print(void) { return; }
+#endif
+
+extern int on_hidden_reset;
+
+void xo_therm_logging(void);
+
 #if defined(CONFIG_LGE_PM_BATTERY_ID_CHECKER)
 void __init lge_battery_id_devices(void);
-#endif
-
-#if defined(CONFIG_LGE_KSWITCH)
-#define LGE_KSWITCH_UART_DISABLE     0x1 << 3
-int lge_get_kswitch_status(void);
-#endif
-
-#ifdef CONFIG_LGE_QSDL_SUPPORT
-void __init lge_add_qsdl_device(void);
 #endif
 
 #endif

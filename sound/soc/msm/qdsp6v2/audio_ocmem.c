@@ -31,7 +31,7 @@
 #include <mach/subsystem_restart.h>
 #include <mach/msm_memtypes.h>
 #include <mach/ramdump.h>
-#include <sound/q6core.h>
+#include "q6core.h"
 #include "audio_ocmem.h"
 
 
@@ -536,7 +536,6 @@ fail_cmd2:
 	mutex_unlock(&audio_ocmem_lcl.state_process_lock);
 fail_cmd:
 	pr_debug("%s: exit\n", __func__);
-	audio_ocmem_lcl.buf = NULL;
 	audio_ocmem_lcl.audio_ocmem_running = false;
 	return ret;
 }
@@ -835,7 +834,6 @@ static void process_ocmem_dump(void)
 	ret = ocmem_free(OCMEM_LP_AUDIO, audio_ocmem_lcl.buf);
 	if (ret)
 		pr_err("%s: ocmem_free failed\n", __func__);
-	audio_ocmem_lcl.buf = NULL;
 }
 
 static int lpass_notifier_cb(struct notifier_block *this, unsigned long code,

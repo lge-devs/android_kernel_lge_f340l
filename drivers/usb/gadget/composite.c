@@ -29,14 +29,11 @@
 #endif
 #ifdef CONFIG_LGE_PM
 #include <mach/board_lge.h>
-#if defined (CONFIG_SLIMPORT_ANX7816) || defined(CONFIG_SLIMPORT_ANX7808)
-#include <linux/slimport.h>
 #endif
+#if defined(CONFIG_USB_DWC3_MSM_VZW_SUPPORT)
+int lge_usb_config_finish;
+extern void send_drv_state_uevent(int usb_drv_state);
 #endif
-#ifdef CONFIG_USB_G_LGE_MULTIPLE_CONFIGURATION
-#include "u_lgeusb.h"
-#endif
-
 /*
  * The code in this file is utility code, used to build a gadget driver
  * from one or more "function" drivers, one or more "configuration"
@@ -46,6 +43,13 @@
 
 /* big enough to hold our biggest descriptor */
 #define USB_BUFSIZ	4096
+#ifdef CONFIG_SMB349_VZW_FAST_CHG
+bool usb_connected_flag;
+EXPORT_SYMBOL(usb_connected_flag);
+bool usb_configured_flag;
+EXPORT_SYMBOL(usb_configured_flag);
+extern void set_vzw_usb_charging_state(int kind_of_state);
+#endif
 
 static struct usb_composite_driver *composite;
 static int (*composite_gadget_bind)(struct usb_composite_dev *cdev);
@@ -81,6 +85,9 @@ MODULE_PARM_DESC(iSerialNumber, "SerialNumber string");
 
 static char composite_manufacturer[50];
 
+#ifdef CONFIG_USB_G_LGE_MULTIPLE_CONFIGURATION
+static int nSetConfig = 0;
+#endif //CONFIG_USB_G_LGE_MULTIPLE_CONFIGURATION
 /*-------------------------------------------------------------------------*/
 /**
  * next_ep_desc() - advance to the next EP descriptor
@@ -387,12 +394,7 @@ static int config_buf(struct usb_configuration *config,
 	c->iConfiguration = config->iConfiguration;
 	c->bmAttributes = USB_CONFIG_ATT_ONE | config->bmAttributes;
 	c->bMaxPower = config->bMaxPower ? :
-#ifdef CONFIG_USB_G_LGE_ANDROID
-		(speed == USB_SPEED_SUPER ? CONFIG_USB_GADGET_VBUS_DRAW_30 :
-		CONFIG_USB_GADGET_VBUS_DRAW) / config->cdev->vbus_draw_units;
-#else
 		(CONFIG_USB_GADGET_VBUS_DRAW / config->cdev->vbus_draw_units);
-#endif
 
 	/* There may be e.g. OTG descriptors */
 	if (config->descriptors) {
@@ -407,10 +409,6 @@ static int config_buf(struct usb_configuration *config,
 	/* add each function's descriptors */
 	list_for_each_entry(f, &config->functions, list) {
 		struct usb_descriptor_header **descriptors;
-#ifdef CONFIG_USB_G_LGE_MULTIPLE_CONFIGURATION
-		if (f->desc_change)
-			f->desc_change(f, lgeusb_get_host_os());
-#endif
 
 		switch (speed) {
 		case USB_SPEED_SUPER:
@@ -618,6 +616,9 @@ static void reset_config(struct usb_composite_dev *cdev)
 		bitmap_zero(f->endpoints, 32);
 	}
 	cdev->config = NULL;
+#if defined(CONFIG_USB_DWC3_MSM_VZW_SUPPORT)
+	lge_usb_config_finish = 0;
+#endif
 }
 
 static int set_config(struct usb_composite_dev *cdev,
@@ -628,16 +629,6 @@ static int set_config(struct usb_composite_dev *cdev,
 	int			result = -EINVAL;
 	unsigned		power = gadget_is_otg(gadget) ? 8 : 100;
 	int			tmp;
-
-	/*
-	 * ignore 2nd time SET_CONFIGURATION
-	 * only for same config value twice.
-	 */
-	if (cdev->config && (cdev->config->bConfigurationValue == number)) {
-		DBG(cdev, "already in the same config with value %d\n",
-				number);
-		return 0;
-	}
 
 	if (number) {
 		list_for_each_entry(c, &cdev->configs, list) {
@@ -669,7 +660,10 @@ static int set_config(struct usb_composite_dev *cdev,
 		goto done;
 
 	cdev->config = c;
-
+#if defined(CONFIG_USB_DWC3_MSM_VZW_SUPPORT)
+	if (result == 0)
+		lge_usb_config_finish = 1;
+#endif
 	/* Initialize all interfaces by setting them to altsetting zero. */
 	for (tmp = 0; tmp < MAX_CONFIG_INTERFACES; tmp++) {
 		struct usb_function	*f = c->interface[tmp];
@@ -729,14 +723,25 @@ static int set_config(struct usb_composite_dev *cdev,
 
 	/* when we return, be sure our power usage is valid */
 	power = c->bMaxPower ? (cdev->vbus_draw_units * c->bMaxPower) :
-#ifdef CONFIG_USB_G_LGE_ANDROID
-			gadget->speed == USB_SPEED_SUPER ? CONFIG_USB_GADGET_VBUS_DRAW_30 :
-#endif
 			CONFIG_USB_GADGET_VBUS_DRAW;
 done:
+#ifdef CONFIG_LGE_PM
+	if (lge_pm_get_cable_type() == CABLE_56K ||
+		lge_pm_get_cable_type() == CABLE_130K ||
+		lge_pm_get_cable_type() == CABLE_910K)
+		usb_gadget_vbus_draw(gadget, lge_pm_get_usb_current());
+	else
+		usb_gadget_vbus_draw(gadget, power);
+#else /* google original */
 	usb_gadget_vbus_draw(gadget, power);
+#endif
 	if (result >= 0 && cdev->delayed_status)
 		result = USB_GADGET_DELAYED_STATUS;
+#ifdef CONFIG_USB_G_LGE_MULTIPLE_CONFIGURATION
+    if( !result )
+        nSetConfig = number;
+	INFO(cdev, "%s : Set Config Number is %d\n", __func__, nSetConfig );
+#endif //CONFIG_USB_G_LGE_MULTIPLE_CONFIGURATION
 	return result;
 }
 
@@ -1152,6 +1157,12 @@ composite_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 
 	/* we handle all standard USB descriptors */
 	case USB_REQ_GET_DESCRIPTOR:
+#ifdef CONFIG_SMB349_VZW_FAST_CHG
+		if (!usb_connected_flag) {
+			usb_connected_flag = true;
+			pr_info("%s: usb_connected_flag set to TURE!! \n", __func__);
+		}
+#endif
 		if (ctrl->bRequestType != USB_DIR_IN)
 			goto unknown;
 		switch (w_value >> 8) {
@@ -1209,9 +1220,6 @@ composite_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 						USB_DT_OTG);
 			break;
 		case USB_DT_STRING:
-#ifdef CONFIG_USB_G_LGE_MULTIPLE_CONFIGURATION
-			lgeusb_set_host_os(w_length);
-#endif
 			value = get_string(cdev, req->buf,
 					w_index, w_value & 0xff);
 			if (value >= 0)
@@ -1242,6 +1250,11 @@ composite_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 		spin_lock(&cdev->lock);
 		value = set_config(cdev, ctrl, w_value);
 		spin_unlock(&cdev->lock);
+#ifdef CONFIG_SMB349_VZW_FAST_CHG
+		usb_configured_flag = true;
+		pr_info("%s: usb_configured_flag set to TRUE!!\n", __func__);
+		set_vzw_usb_charging_state(2);
+#endif
 		break;
 	case USB_REQ_GET_CONFIGURATION:
 		if (ctrl->bRequestType != USB_DIR_IN)
@@ -1271,7 +1284,7 @@ composite_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 		 * upon set config#1. Call set_alt for non-zero
 		 * alternate setting.
 		 */
-		if (!w_value && cdev->config && !f->get_alt) {
+		if (!w_value && cdev->config) {
 			value = 0;
 			break;
 		}
@@ -1434,9 +1447,7 @@ static void composite_disconnect(struct usb_gadget *gadget)
 {
 	struct usb_composite_dev	*cdev = get_gadget_data(gadget);
 	unsigned long			flags;
-#ifdef CONFIG_USB_G_LGE_MULTIPLE_CONFIGURATION
-	lgeusb_set_host_os(WIN_LINUX_TYPE);
-#endif
+
 	/* REVISIT:  should we have config and device level
 	 * disconnect callbacks?
 	 */
@@ -1781,6 +1792,10 @@ static int composite_bind(struct usb_gadget *gadget)
 		goto fail;
 
 #if defined CONFIG_DEBUG_FS && defined CONFIG_USB_G_LGE_ANDROID
+	/* LGE_CHANGE
+	 * Add debugfs for lge usb profile.
+	 * 2011-09-23, hyunhui.park@lge.com
+	 */
 	composite_debugfs_init(cdev);
 #endif
 

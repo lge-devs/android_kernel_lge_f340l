@@ -66,6 +66,5 @@ struct ispif_device {
 /* LGE_CHANGE_S [20130622][youngbae.choi@lge.com] : To enter the deep sleep after finish camera close */
 	struct wake_lock        camera_wake_lock;
 /* LGE_CHANGE_E [20130622][youngbae.choi@lge.com] : To enter the deep sleep after finish camera close */
-	uint32_t clk_idx;
 };
 #endif

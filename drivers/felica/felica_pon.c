@@ -43,12 +43,16 @@ static int felica_pon_open (struct inode *inode, struct file *fp)
 
   if(1 == isopen)
   {
-    FELICA_DEBUG_MSG_HIGH("[FELICA_PON] felica_pon_open - already open \n");
+    #ifdef FEATURE_DEBUG_HIGH
+    FELICA_DEBUG_MSG("[FELICA_PON] felica_pon_open - already open \n");
+    #endif
     return -1;
   }
   else
   {
-    FELICA_DEBUG_MSG_LOW("[FELICA_PON] felica_pon_open - start \n");
+    #ifdef FEATURE_DEBUG_LOW
+    FELICA_DEBUG_MSG("[FELICA_PON] felica_pon_open - start \n");
+    #endif
     isopen = 1;
   }
 
@@ -59,10 +63,12 @@ static int felica_pon_open (struct inode *inode, struct file *fp)
   felica_uart_open();
 #endif
 
-  FELICA_DEBUG_MSG_LOW("[FELICA_PON] felica_pon_open - end \n");
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA_PON] felica_pon_open - end \n");
+  #endif
 
 #ifdef FELICA_FN_DEVICE_TEST
-  FELICA_DEBUG_MSG_LOW("[FELICA_PON] felica_pon_open - result_open(%d)  \n",result_open_pon);
+  FELICA_DEBUG_MSG("[FELICA_PON] felica_pon_open - result_open(%d)  \n",result_open_pon);
   return result_open_pon;
 #else
   return rc;
@@ -79,61 +85,72 @@ static ssize_t felica_pon_write(struct file *fp, const char *buf, size_t count, 
   int rc = 0;
   int SetValue = 0;
 
-  FELICA_DEBUG_MSG_LOW("[FELICA_PON] felica_pon_write - start \n");
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA_PON] felica_pon_write - start \n");
+  #endif
 
-  //FELICA_DEBUG_MSG_LOW("[FELICA_PON] felica_pon_write current_uid : %d \n",current_uid());
+  //FELICA_DEBUG_MSG("[FELICA_PON] felica_pon_write current_uid : %d \n",current_uid());
 
   /* Check error */
 	if(NULL == fp)
 	{
-	  FELICA_DEBUG_MSG_HIGH("[FELICA_PON] ERROR fp is NULL \n");
-
+    #ifdef FEATURE_DEBUG_HIGH
+	  FELICA_DEBUG_MSG("[FELICA_PON] ERROR fp is NULL \n");
+	#endif
 	  return -1;
 	}
   
 	if(NULL == buf)
 	{
-	  FELICA_DEBUG_MSG_HIGH("[FELICA_PON] ERROR buf is NULL \n");
-
+    #ifdef FEATURE_DEBUG_HIGH
+	  FELICA_DEBUG_MSG("[FELICA_PON] ERROR buf is NULL \n");
+	#endif
 	  return -1;
 	}
   
 	if(1 != count)
 	{
-	  FELICA_DEBUG_MSG_HIGH("[FELICA_PON] ERROR count(%d) \n",count);
-
+    #ifdef FEATURE_DEBUG_HIGH
+	  FELICA_DEBUG_MSG("[FELICA_PON] ERROR count(%d) \n",count);
+	#endif
 	  return -1;
 	}
   
 	if(NULL == pos)
 	{
-	  FELICA_DEBUG_MSG_HIGH("[FELICA_PON] ERROR pos is NULL \n");
-
+    #ifdef FEATURE_DEBUG_HIGH
+	  FELICA_DEBUG_MSG("[FELICA_PON] ERROR pos is NULL \n");
+	#endif
 	  return -1;
 	}
 
   rc = copy_from_user(&SetValue, (void*)buf, count);
   if(rc)
   {
-    FELICA_DEBUG_MSG_HIGH("[FELICA_PON] ERROR - copy_from_user \n");
-
+    #ifdef FEATURE_DEBUG_HIGH
+    FELICA_DEBUG_MSG("[FELICA_PON] ERROR - copy_from_user \n");
+	#endif
     return rc;
   }
 
   if((GPIO_LOW_VALUE != SetValue)&&(GPIO_HIGH_VALUE != SetValue))
   {
-    FELICA_DEBUG_MSG_HIGH("[FELICA_PON] ERROR - SetValue is out of range \n");
-
+    #ifdef FEATURE_DEBUG_HIGH
+    FELICA_DEBUG_MSG("[FELICA_PON] ERROR - SetValue is out of range \n");
+	#endif
     return -1;
   }
   else if(GPIO_LOW_VALUE != SetValue)
   {
-    FELICA_DEBUG_MSG_HIGH("[FELICA_PON] ========> ON \n");
-
+    #ifdef FEATURE_DEBUG_HIGH
+    FELICA_DEBUG_MSG("[FELICA_PON] ========> ON \n");
+	#endif
   }
   else if(GPIO_HIGH_VALUE != SetValue)
   {
-    FELICA_DEBUG_MSG_HIGH("[FELICA_PON] <======== OFF \n");
+    #ifdef FEATURE_DEBUG_HIGH
+    FELICA_DEBUG_MSG("[FELICA_PON] <======== OFF \n");
+	#endif
   }
 
   felica_gpio_write(GPIO_FELICA_PON, SetValue);
@@ -154,7 +171,7 @@ static ssize_t felica_pon_write(struct file *fp, const char *buf, size_t count, 
 #endif
 
 #ifdef FELICA_FN_DEVICE_TEST
-    FELICA_DEBUG_MSG_LOW("[FELICA_PON] felica_pon_write - result_write_pon(%d) \n",result_write_pon);
+    FELICA_DEBUG_MSG("[FELICA_PON] felica_pon_write - result_write_pon(%d) \n",result_write_pon);
     return result_write_pon;
 #else
     return 1;
@@ -171,13 +188,17 @@ static int felica_pon_release (struct inode *inode, struct file *fp)
 {
   if(0 == isopen)
   {
-    FELICA_DEBUG_MSG_HIGH("[FELICA_PON] felica_pon_release - not open \n");
+    #ifdef FEATURE_DEBUG_HIGH
+    FELICA_DEBUG_MSG("[FELICA_PON] felica_pon_release - not open \n");
+    #endif
 
     return -1;
   }
   else
   {
-    FELICA_DEBUG_MSG_LOW("[FELICA_PON] felica_pon_release - start \n");
+    #ifdef FEATURE_DEBUG_LOW
+    FELICA_DEBUG_MSG("[FELICA_PON] felica_pon_release - start \n");
+    #endif
 
     isopen = 0;
   }
@@ -188,10 +209,12 @@ static int felica_pon_release (struct inode *inode, struct file *fp)
 
   felica_gpio_write(GPIO_FELICA_PON, GPIO_LOW_VALUE);
 
-  FELICA_DEBUG_MSG_LOW("[FELICA_PON] felica_pon_release - end \n");
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA_PON] felica_pon_release - end \n");
+  #endif
 
 #ifdef FELICA_FN_DEVICE_TEST
-  FELICA_DEBUG_MSG_LOW("[FELICA_PON] felica_pon_close - result_close_pon(%d)  \n",result_close_pon);
+  FELICA_DEBUG_MSG("[FELICA_PON] felica_pon_close - result_close_pon(%d)  \n",result_close_pon);
   return result_close_pon;
 #else
   return 0;
@@ -222,30 +245,39 @@ static int felica_pon_init(void)
 {
   int rc = 0;
 
-  FELICA_DEBUG_MSG_LOW("[FELICA_PON] felica_pon_init - start \n");
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA_PON] felica_pon_init - start \n");
+  #endif
 
   /* register the device file */
   rc = misc_register(&felica_pon_device);
   if (rc)
   {
-    FELICA_DEBUG_MSG_HIGH("[FELICA_PON] ERROR can not register felica_pon \n");
-
+    #ifdef FEATURE_DEBUG_HIGH
+    FELICA_DEBUG_MSG("[FELICA_PON] ERROR can not register felica_pon \n");
+	#endif
     return rc;
   }
 
-  FELICA_DEBUG_MSG_LOW("[FELICA_PON] felica_pon_init - end \n");
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA_PON] felica_pon_init - end \n");
+  #endif
 
   return 0;
 }
 
 static void felica_pon_exit(void)
 {
-  FELICA_DEBUG_MSG_LOW("[FELICA_PON] felica_pon_exit - start \n");
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA_PON] felica_pon_exit - start \n");
+  #endif
 
   /* deregister the device file */
   misc_deregister(&felica_pon_device);
 
-  FELICA_DEBUG_MSG_LOW("[FELICA_PON] felica_pon_exit - end \n");
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA_PON] felica_pon_exit - end \n");
+  #endif
 }
 
 module_init(felica_pon_init);

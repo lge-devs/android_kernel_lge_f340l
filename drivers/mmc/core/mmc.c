@@ -66,21 +66,6 @@ static const struct mmc_fixup mmc_fixups[] = {
 	MMC_FIXUP_EXT_CSD_REV(CID_NAME_ANY, CID_MANFID_HYNIX,
 			      0x014a, add_quirk, MMC_QUIRK_BROKEN_HPI, 5),
 
-	/* Disable HPI feature for Kingstone card */
-	MMC_FIXUP_EXT_CSD_REV("MMC16G", CID_MANFID_KINGSTON, CID_OEMID_ANY,
-			add_quirk, MMC_QUIRK_BROKEN_HPI, 5),
-
-	/*
-	 * Some Hynix cards exhibit data corruption over reboots if cache is
-	 * enabled. Disable cache for all versions until a class of cards that
-	 * show this behavior is identified.
-	 */
-	MMC_FIXUP("H8G2d", CID_MANFID_HYNIX, CID_OEMID_ANY, add_quirk_mmc,
-		  MMC_QUIRK_CACHE_DISABLE),
-
-	MMC_FIXUP("MMC16G", CID_MANFID_KINGSTON, CID_OEMID_ANY, add_quirk_mmc,
-		  MMC_QUIRK_CACHE_DISABLE),
-
 	END_FIXUP
 };
 
@@ -126,19 +111,7 @@ static int mmc_decode_cid(struct mmc_card *card)
 		card->cid.prod_name[5]	= UNSTUFF_BITS(resp, 56, 8);
 		card->cid.serial	= UNSTUFF_BITS(resp, 16, 32);
 		card->cid.month		= UNSTUFF_BITS(resp, 12, 4);
-#ifdef CONFIG_MACH_LGE
-		/* LGE_CHANGE
-		 * modify date cid register values
-		 * see CID register part in JEDEC Spec.
-		 * ex) 0000 : 1997, or 2013 if EXT_CSD_REV [192] > 4
-		 * don't care MDT y Field[11:8] value over 1101b.
-		 * 2014-03-07, B2-BSP-FS@lge.com
-		 */
-		if (card->ext_csd.rev > 4)
-			card->cid.year		= UNSTUFF_BITS(resp, 8, 4) + 2013;
-		else
-#endif
-		card->cid.year      = UNSTUFF_BITS(resp, 8, 4) + 1997;
+		card->cid.year		= UNSTUFF_BITS(resp, 8, 4) + 1997;
 		break;
 
 	default:
@@ -366,8 +339,6 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 
 	card->ext_csd.raw_card_type = ext_csd[EXT_CSD_CARD_TYPE];
 	mmc_select_card_type(card);
-
-	card->ext_csd.raw_drive_strength = ext_csd[EXT_CSD_DRIVE_STRENGTH];
 
 	card->ext_csd.raw_s_a_timeout = ext_csd[EXT_CSD_S_A_TIMEOUT];
 	card->ext_csd.raw_erase_timeout_mult =
@@ -699,7 +670,7 @@ out:
 	mmc_free_ext_csd(bw_ext_csd);
 	return err;
 }
-#if defined(CONFIG_MACH_MSM8974_G2_OPEN_COM) || defined(CONFIG_MACH_MSM8974_G2_OPT_AU)
+#if defined(CONFIG_MACH_MSM8974_G2_OPEN_COM) || defined(CONFIG_MACH_MSM8974_G2_OPT_AU) || defined(CONFIG_MACH_MSM8974_B1_OPEN_TW)
 MMC_DEV_ATTR(capacity, "%02x%02x%02x%02x\n", card->ext_csd.raw_sectors[3], card->ext_csd.raw_sectors[2], card->ext_csd.raw_sectors[1], card->ext_csd.raw_sectors[0]);
 #endif
 MMC_DEV_ATTR(cid, "%08x%08x%08x%08x\n", card->raw_cid[0], card->raw_cid[1],
@@ -722,7 +693,7 @@ MMC_DEV_ATTR(raw_rpmb_size_mult, "%#x\n", card->ext_csd.raw_rpmb_size_mult);
 MMC_DEV_ATTR(rel_sectors, "%#x\n", card->ext_csd.rel_sectors);
 
 static struct attribute *mmc_std_attrs[] = {
-#if defined(CONFIG_MACH_MSM8974_G2_OPEN_COM) || defined(CONFIG_MACH_MSM8974_G2_OPT_AU)
+#if defined(CONFIG_MACH_MSM8974_G2_OPEN_COM) || defined(CONFIG_MACH_MSM8974_G2_OPT_AU) || defined(CONFIG_MACH_MSM8974_B1_OPEN_TW)
 	&dev_attr_capacity.attr,
 #endif
 	&dev_attr_cid.attr,
@@ -795,7 +766,9 @@ static int mmc_select_powerclass(struct mmc_card *card,
 				EXT_CSD_PWR_CL_52_195 :
 				EXT_CSD_PWR_CL_DDR_52_195;
 		else if (host->ios.clock <= 200000000)
-			index = EXT_CSD_PWR_CL_200_195;
+			index = (bus_width <= EXT_CSD_BUS_WIDTH_8) ?
+				EXT_CSD_PWR_CL_200_195 :
+				EXT_CSD_PWR_CL_DDR_200_195;
 		break;
 	case MMC_VDD_27_28:
 	case MMC_VDD_28_29:
@@ -813,9 +786,9 @@ static int mmc_select_powerclass(struct mmc_card *card,
 				EXT_CSD_PWR_CL_52_360 :
 				EXT_CSD_PWR_CL_DDR_52_360;
 		else if (host->ios.clock <= 200000000)
-			index = (bus_width == EXT_CSD_DDR_BUS_WIDTH_8) ?
-				EXT_CSD_PWR_CL_DDR_200_360 :
-				EXT_CSD_PWR_CL_200_360;
+			index = (bus_width <= EXT_CSD_BUS_WIDTH_8) ?
+				EXT_CSD_PWR_CL_200_360 :
+				EXT_CSD_PWR_CL_DDR_200_360;
 		break;
 	default:
 		#ifdef CONFIG_MACH_LGE
@@ -1200,22 +1173,8 @@ static int mmc_select_hs400(struct mmc_card *card, u8 *ext_csd)
 	}
 
 	/* Switch to HS400 mode if bus width set successfully */
-	#ifdef CONFIG_MACH_LGE
-	/* LGE_CHANGE
-	 * As recommendation of Toshiba, we use 0x4 for Driver Strength in case of Toshiba eMMC.
-	 * 2014.03.17, B2-BSP-FS@lge.com
-	*/
-	if (card->cid.manfid == 17) {
-		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
-				EXT_CSD_HS_TIMING, 67, 0);
-	} else {
-		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
-				EXT_CSD_HS_TIMING, 3, 0);
-	}
-	#else
 	err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
 				 EXT_CSD_HS_TIMING, 3, 0);
-	#endif
 	if (err && err != -EBADMSG) {
 		pr_err("%s: Setting HS_TIMING to HS400 failed (err:%d)\n",
 			mmc_hostname(host), err);
@@ -1317,7 +1276,8 @@ static int mmc_change_bus_speed(struct mmc_host *host, unsigned long *freq)
 		mmc_set_clock(host, (unsigned int) (*freq));
 	}
 
-	if (mmc_card_hs200(card) && card->host->ops->execute_tuning) {
+	if ((mmc_card_hs400(card) || mmc_card_hs200(card))
+		&& card->host->ops->execute_tuning) {
 		/*
 		 * We try to probe host driver for tuning for any
 		 * frequency, it is host driver responsibility to
@@ -1486,15 +1446,9 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		err = mmc_decode_csd(card);
 		if (err)
 			goto free_card;
-#ifndef CONFIG_MACH_LGE
-		/* LGE_CHANGE
-		 *  ext_csd.rev value are required while decoding cid.year, so move down.
-		 *  2014-03-07, B2-BSP-FS@lge.com
-		 */
 		err = mmc_decode_cid(card);
 		if (err)
 			goto free_card;
-#endif
 	}
 
 	/*
@@ -1518,15 +1472,6 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		err = mmc_read_ext_csd(card, ext_csd);
 		if (err)
 			goto free_card;
-#ifdef CONFIG_MACH_LGE
-		/* LGE_CHANGE
-		 * decode cid here.
-		 * 2014-03-07, B2-BSP-FS@lge.com
-		 */
-		err = mmc_decode_cid(card);
-		if (err)
-			goto free_card;
-#endif
 
 		/* If doing byte addressing, check if required to do sector
 		 * addressing.  Handle the case of <2GB cards needing sector
@@ -1641,8 +1586,7 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 	 * If HPI is not supported then cache shouldn't be enabled.
 	 */
 	if ((host->caps2 & MMC_CAP2_CACHE_CTRL) &&
-	    (card->ext_csd.cache_size > 0) && card->ext_csd.hpi_en &&
-	    ((card->quirks & MMC_QUIRK_CACHE_DISABLE) == 0)) {
+	    (card->ext_csd.cache_size > 0) && card->ext_csd.hpi_en) {
 		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
 				EXT_CSD_CACHE_CTRL, 1,
 				card->ext_csd.generic_cmd6_time);
@@ -1661,11 +1605,6 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		} else {
 			card->ext_csd.cache_ctrl = 1;
 		}
-	}
-	if (card->quirks & MMC_QUIRK_CACHE_DISABLE) {
-		pr_warn("%s: This is Hynix card, cache disabled!\n",
-				mmc_hostname(card->host));
-		card->ext_csd.cache_ctrl = 0;
 	}
 
 	if ((host->caps2 & MMC_CAP2_PACKED_WR &&
@@ -1790,12 +1729,11 @@ static void mmc_remove(struct mmc_host *host)
 	BUG_ON(!host->card);
 
 	unregister_reboot_notifier(&host->card->reboot_notify);
-
-	mmc_exit_clk_scaling(host);
 	mmc_remove_card(host->card);
 
 	mmc_claim_host(host);
 	host->card = NULL;
+	mmc_exit_clk_scaling(host);
 	mmc_release_host(host);
 }
 

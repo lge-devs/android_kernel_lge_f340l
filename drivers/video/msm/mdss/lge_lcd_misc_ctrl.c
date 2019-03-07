@@ -27,6 +27,8 @@
 
 struct dsi_cmd_desc *tun_dsi_panel_on_cmds;
 u32 tun_porch_value[6] = {0, 0, 0, 0, 0, 0};
+int num_cmds;
+int tun_len;
 
 #define IOCTL_READ_INIT _IOW('a', 0, int)
 #define IOCTL_WRITE_INIT _IOW('a', 1, int)
@@ -35,18 +37,13 @@ u32 tun_porch_value[6] = {0, 0, 0, 0, 0, 0};
 #define IOCTL_READ_LUT _IOW('a', 4, int)
 #define IOCTL_WRITE_LUT _IOW('a', 5, int)
 
-#define TUNING_REGSIZE 1600
-#define REGNUM 40
-
-#define TUNING_DBG 0
-
-int num_cmds;
-int tun_len[REGNUM];
+#define TUNING_BUFSIZE 4096
+#define TUNING_REGSIZE 400
 
 char init_buf[TUNING_REGSIZE];
 struct tuning_init{
 	char buf[TUNING_REGSIZE];
-	int size[REGNUM];
+	int size;
 	int numcmds;
 };
 
@@ -90,21 +87,16 @@ static int read_initset(unsigned long tmp)
 
 	pr_info("read_init_file\n");
 
-	if (!tun_len[0]) {
+	if (!tun_len) {
 		pr_err("read_init_file:  No cmds ready");
 		return -EFAULT;
 	}
-	if (copy_to_user(rbuf->buf, init_buf, TUNING_REGSIZE)) {
+	if (copy_to_user(rbuf->buf, init_buf, tun_len)) {
 		pr_err("read_file : error of copy_to_user_buff\n");
 		return -EFAULT;
 	}
-	if (copy_to_user(rbuf->size, tun_len, sizeof(tun_len))) {
+	if (put_user(tun_len, &(rbuf->size))) {
 		pr_err("read_file : error of copy_to_user_buffsize\n");
-		return -EFAULT;
-	}
-
-	if (put_user(num_cmds, &(rbuf->numcmds))) {
-		pr_err("read_file : error of copy_to_user_cmds_num\n");
 		return -EFAULT;
 	}
 
@@ -114,17 +106,14 @@ static int read_initset(unsigned long tmp)
 static int write_initset(unsigned long tmp)
 {
 	struct tuning_init *wbuf = (struct tuning_init *)tmp;
-	int i = 0;
-#if TUNING_DBG
-	int j = 0, k = 0;
-#endif
+	int i;
 	int data_offset;
 
-	pr_info("write_init_file\n");
+	pr_info("write file\n");
 
 	memset(init_buf, 0x00, TUNING_REGSIZE);
 
-	if (copy_from_user(init_buf, wbuf->buf, sizeof(wbuf->buf))) {
+	if (copy_from_user(init_buf, wbuf->buf, wbuf->size)) {
 		pr_err("write_file : error of copy_from_user\n");
 		return -EFAULT;
 	}
@@ -134,7 +123,6 @@ static int write_initset(unsigned long tmp)
 		return -EFAULT;
 	}
 
-	pr_info("%s: num_cmds: %d\n", __func__, num_cmds);
 	tun_dsi_panel_on_cmds =
 		kzalloc((num_cmds * sizeof(struct dsi_cmd_desc)), GFP_KERNEL);
 	if (!tun_dsi_panel_on_cmds) {
@@ -144,50 +132,28 @@ static int write_initset(unsigned long tmp)
 
 	data_offset = 0;
 
-#if TUNING_DBG
-	pr_info("========================\n");
-	while (i < sizeof(wbuf->buf)) {
-		pr_info("%x ", init_buf[i]);
-		j++;
-		if (j == wbuf->size[k]) {
-			pr_info("\n");
-			j = 0;
-			k++;
-		}
-		if (k == wbuf->numcmds)
-			break;
-		i++;
-	}
-	pr_info("========================\n");
-#endif
-
 	for (i = 0; i < num_cmds; i++) {
-		tun_dsi_panel_on_cmds[i].dchdr.dtype = init_buf[data_offset++];
-		tun_dsi_panel_on_cmds[i].dchdr.last = init_buf[data_offset++];
-		tun_dsi_panel_on_cmds[i].dchdr.vc = init_buf[data_offset++];
-		tun_dsi_panel_on_cmds[i].dchdr.ack = init_buf[data_offset++];
-		tun_dsi_panel_on_cmds[i].dchdr.wait = init_buf[data_offset++];
-		data_offset++;
-		tun_dsi_panel_on_cmds[i].dchdr.dlen = init_buf[data_offset++];
+		tun_dsi_panel_on_cmds[i].dtype = init_buf[data_offset++];
+		tun_dsi_panel_on_cmds[i].last = init_buf[data_offset++];
+		tun_dsi_panel_on_cmds[i].vc = init_buf[data_offset++];
+		tun_dsi_panel_on_cmds[i].ack = init_buf[data_offset++];
+		tun_dsi_panel_on_cmds[i].wait = init_buf[data_offset++];
+		tun_dsi_panel_on_cmds[i].dlen = init_buf[data_offset++];
 		tun_dsi_panel_on_cmds[i].payload = &init_buf[data_offset];
-		data_offset += (int)(tun_dsi_panel_on_cmds[i].dchdr.dlen);
+		data_offset += (tun_dsi_panel_on_cmds[i].dlen);
 	}
-
-	memcpy(tun_len, wbuf->size, sizeof(wbuf->size));
-
-#if TUNING_DBG
-	for (i = 0; i < num_cmds; i++) {
-		pr_info("%dth data <%x, %x, %x, %x, %x, %d, %x...>\n",
-				i+1,
-				tun_dsi_panel_on_cmds[i].dchdr.dtype,
-				tun_dsi_panel_on_cmds[i].dchdr.last,
-				tun_dsi_panel_on_cmds[i].dchdr.vc,
-				tun_dsi_panel_on_cmds[i].dchdr.ack,
-				tun_dsi_panel_on_cmds[i].dchdr.wait,
-				tun_dsi_panel_on_cmds[i].dchdr.dlen,
-				*(tun_dsi_panel_on_cmds[i].payload));
-	}
-#endif
+	/* for debugging
+	   for (i = 0; i < num_cmds; i++) {
+	   pr_info(" %x, %x, %x, %x, %x, %x, %x \n",
+	   tun_dsi_panel_on_cmds[i].dtype,
+	   tun_dsi_panel_on_cmds[i].last,
+	   tun_dsi_panel_on_cmds[i].vc,
+	   tun_dsi_panel_on_cmds[i].ack,
+	   tun_dsi_panel_on_cmds[i].wait,
+	   tun_dsi_panel_on_cmds[i].dlen,
+	 *(tun_dsi_panel_on_cmds[i].payload));
+	 }
+	 */
 	return 0;
 }
 long device_ioctl(struct file *file, unsigned int ioctl_num,

@@ -45,13 +45,10 @@
 #endif
 #endif
 #ifdef CONFIG_LGE_CHARGER_TEMP_SCENARIO
-#ifdef CONFIG_LGE_PM_CHARGING_TEMP_SCENARIO_V1_7
-#include <mach/lge_charging_scenario_v1_7.h>
-#else
 #include <mach/lge_charging_scenario.h>
-#endif
 #define MONITOR_BATTEMP_POLLING_PERIOD          (60*HZ)
 #endif
+
 #ifdef CONFIG_LGE_PM
 #include <linux/qpnp/qpnp-temp-alarm.h>
 #endif
@@ -233,10 +230,10 @@ static int wireless_charging;
 #endif
 
 static struct bq24192_chip *the_chip;
-extern struct pseudo_batt_info_type pseudo_batt_info;
-//struct pseudo_batt_info_type pseudo_batt_info = {
-//	.mode = 0,
-//};
+
+struct pseudo_batt_info_type pseudo_batt_info = {
+	.mode = 0,
+};
 
 struct debug_reg {
 	char  *name;
@@ -394,7 +391,7 @@ static struct input_ma_limit_entry icl_ma_table[] = {
 
 #define INPUT_CURRENT_LIMIT_MIN_MA  100
 #define INPUT_CURRENT_LIMIT_MAX_MA  3000
-#ifdef CONFIG_MACH_MSM8974_Z_US
+#if defined(CONFIG_MACH_MSM8974_Z_US) && !defined(CONFIG_MACH_MSM8974_Z_OPEN_COM)
 #define INPUT_CURRENT_LIMIT_TA 1500
 #else
 #define INPUT_CURRENT_LIMIT_TA 2000
@@ -870,6 +867,32 @@ static void bq24192_chg_timeout(bool chg_en)
 		MONITOR_BATTEMP_POLLING_PERIOD);
 }
 
+#ifdef CONFIG_MACH_MSM8974_Z_US
+static int in_chargerlogo;
+#define TERM_CURRENT_IN_PWRON_CHG	128
+#define TERM_CURRENT_IN_PWROFF_CHG	128
+#define CHG_CURRENT_IN_PWRON_CHG	1408
+#define CHG_CURRENT_IN_PWROFF_CHG	1344
+#endif
+
+struct current_limit_entry {
+	int input_limit;
+	int chg_limit;
+};
+
+static struct current_limit_entry adap_tbl[] = {
+#if defined(CONFIG_MACH_MSM8974_Z_US)
+	{1200, 1024},
+	{1500, 1408},
+#elif defined(CONFIG_MACH_MSM8974_B1_KR) || defined(CONFIG_MACH_MSM8974_B1W)
+	{1200, 1024},
+	{2000, 1400},
+#else
+	{1200, 1024},
+	{2000, 1600},
+#endif
+};
+
 static int bootcompleted;
 static int
 bq24192_set_bootcompleted(const char *val, struct kernel_param *kp)
@@ -883,10 +906,28 @@ bq24192_set_bootcompleted(const char *val, struct kernel_param *kp)
 	}
 	pr_info(" %d\n",bootcompleted);
 
+#ifdef CONFIG_MACH_MSM8974_Z_US
+	if (in_chargerlogo)
+	{
+		in_chargerlogo = 0 ;
+
+		the_chip->term_current_ma = TERM_CURRENT_IN_PWRON_CHG;
+		adap_tbl[1].chg_limit = CHG_CURRENT_IN_PWRON_CHG;
+		pr_info("boot from chargerlogo to android!!!, term_current = %d, chg_current = %d \n", the_chip->term_current_ma, adap_tbl[1].chg_limit);
+
+		ret = bq24192_set_term_current(the_chip, the_chip->term_current_ma);
+		if (ret) {
+			pr_err("failed to set charge termination current\n");
+			return ret;
+		}
+	}
+#endif
+
 	return 0;
 }
 module_param_call(bootcompleted, bq24192_set_bootcompleted,
 	param_get_uint, &bootcompleted, 0644);
+
 #if defined(CONFIG_MACH_MSM8974_B1_KR) || defined(CONFIG_MACH_MSM8974_B1W)
 static void bq24192_batt_remove_insert_cb(int batt_present)
 {
@@ -921,23 +962,6 @@ static void bq24192_batt_remove_insert_cb(int batt_present)
 	}
 }
 #endif
-struct current_limit_entry {
-	int input_limit;
-	int chg_limit;
-};
-
-static struct current_limit_entry adap_tbl[] = {
-#if defined(CONFIG_MACH_MSM8974_Z_US)
-	{1200, 1024},
-	{1500, 1500},
-#elif defined(CONFIG_MACH_MSM8974_B1_KR) || defined(CONFIG_MACH_MSM8974_B1W)
-	{1200, 1024},
-	{2000, 1400},
-#else
-	{1200, 1024},
-	{2000, 1600},
-#endif
-};
 
 static void bq24192_input_limit_worker(struct work_struct *work)
 {
@@ -1002,7 +1026,6 @@ static void bq24192_input_limit_exception_worker(struct work_struct *work)
 }
 #if defined(CONFIG_TOUCHSCREEN_ATMEL_S540)
 extern void trigger_early_baseline_state_machine(int plug_in);
-static int old_state = 0;
 #endif
 static void bq24192_irq_worker(struct work_struct *work)
 {
@@ -1021,11 +1044,7 @@ static void bq24192_irq_worker(struct work_struct *work)
 	if (ret)
 		return;
 #if defined(CONFIG_TOUCHSCREEN_ATMEL_S540)
-	usb_present = bq24192_is_charger_present(chip);
-	if(old_state != usb_present){
-		trigger_early_baseline_state_machine(1);
-	}
-	old_state = usb_present;
+	trigger_early_baseline_state_machine(1);
 #endif
 
 	pr_info("08:0x%02X, 09:0x%02X\n",reg08, reg09);
@@ -1094,7 +1113,7 @@ static void bq24192_irq_worker(struct work_struct *work)
 #endif
 #ifdef CONFIG_LGE_CHARGER_TEMP_SCENARIO
 		cancel_delayed_work_sync(&chip->battemp_work);
-		schedule_delayed_work(&chip->battemp_work, HZ*1);
+		schedule_delayed_work(&chip->battemp_work, HZ*2);
 		if (!usb_present &&
 			wake_lock_active(&chip->lcs_wake_lock))
 			wake_unlock(&chip->lcs_wake_lock);
@@ -1459,14 +1478,20 @@ static int bq24192_get_prop_batt_current_now(struct bq24192_chip *chip)
 #ifdef CONFIG_LGE_CURRENTNOW
 	int batt_current = 0;
 	union power_supply_propval ret = {0,};
-
+#ifdef CONFIG_MACH_MSM8974_Z_OPEN_COM
+	union power_supply_propval rew = {1,};
+#endif
 	if (!bq24192_get_prop_batt_present(chip))
 		return DEFAULT_CURRENT;
 
 	chip->cn_psy = power_supply_get_by_name("cn");
-	if (!chip->cn_psy) {
+	if (!chip->cn_psy) {		
 		return DEFAULT_CURRENT;
 	} else {
+#ifdef CONFIG_MACH_MSM8974_Z_OPEN_COM
+		chip->cn_psy->set_property(chip->cn_psy,
+			POWER_SUPPLY_PROP_VIRT_ENABLE_BMS, &rew);
+#endif
 		chip->cn_psy->get_property(chip->cn_psy,
 			POWER_SUPPLY_PROP_VIRT_ENABLE_BMS, &ret);
 		if(!ret.intval)
@@ -1501,6 +1526,7 @@ static int bq24192_get_prop_batt_current_now(struct bq24192_chip *chip)
 		pr_info("charging done!\n");
 		return last_batt_current;
 	}
+
 	if (qpnp_iadc_is_ready()) {
 		pr_err("qpnp_iadc is not ready!\n");
 		return DEFAULT_CURRENT;
@@ -1511,6 +1537,7 @@ static int bq24192_get_prop_batt_current_now(struct bq24192_chip *chip)
 		pr_err("failed to read qpnp_iadc\n");
 		return DEFAULT_CURRENT;
 	}
+
 	batt_current = result.result_ua;
 	last_batt_current = batt_current;
 	pr_info("battery_current= %d\n", batt_current);
@@ -2111,6 +2138,24 @@ DEVICE_ATTR(at_chcomp, 0644, at_chg_complete_show, at_chg_complete_store);
 DEVICE_ATTR(at_pmrst, 0640, at_pmic_reset_show, NULL);
 DEVICE_ATTR(at_otg, 0644, at_otg_status_show, at_otg_status_store);
 
+int pseudo_batt_set(struct pseudo_batt_info_type *info)
+{
+	struct bq24192_chip *chip = the_chip;
+	pr_err("pseudo_batt_set\n");
+	pseudo_batt_info.mode = info->mode;
+	pseudo_batt_info.id = info->id;
+	pseudo_batt_info.therm = info->therm;
+	pseudo_batt_info.temp = info->temp;
+	pseudo_batt_info.volt = info->volt;
+	pseudo_batt_info.capacity = info->capacity;
+	pseudo_batt_info.charging = info->charging;
+
+	power_supply_changed(&chip->batt_psy);
+
+	return 0;
+}
+EXPORT_SYMBOL(pseudo_batt_set);
+
 #ifdef CONFIG_LGE_CHARGER_TEMP_SCENARIO
 #ifdef CONFIG_LGE_THERMALE_CHG_CONTROL
 struct charging_current_ma_entry {
@@ -2256,7 +2301,7 @@ static void bq24192_monitor_batt_temp(struct work_struct *work)
 		if (res.change_lvl == STS_CHE_NORMAL_TO_DECCUR ||
 			(res.force_update == true && res.state == CHG_BATT_DECCUR_STATE &&
 			res.dc_current != DC_CURRENT_DEF
-#if defined(CONFIG_MACH_MSM8974_Z_SPR) || defined(CONFIG_MACH_MSM8974_Z_KR) || defined(CONFIG_MACH_MSM8974_B1_KR) || defined(CONFIG_MACH_MSM8974_B1W)
+#if defined(CONFIG_MACH_MSM8974_Z_US) || defined(CONFIG_MACH_MSM8974_Z_KR) || defined(CONFIG_MACH_MSM8974_B1_KR) || defined(CONFIG_MACH_MSM8974_B1W) || defined(CONFIG_MACH_MSM8974_Z_OPEN_COM)
 			&& res.change_lvl != STS_CHE_STPCHG_TO_DECCUR
 #endif
 			)) {
@@ -2294,7 +2339,7 @@ static void bq24192_monitor_batt_temp(struct work_struct *work)
 			bq24192_enable_charging(chip, !res.disable_chg);
 			wake_unlock(&chip->lcs_wake_lock);
 		}
-#if defined(CONFIG_MACH_MSM8974_Z_SPR) || defined(CONFIG_MACH_MSM8974_Z_KR) || defined(CONFIG_MACH_MSM8974_B1_KR) || defined(CONFIG_MACH_MSM8974_B1W)
+#if defined(CONFIG_MACH_MSM8974_Z_US) || defined(CONFIG_MACH_MSM8974_Z_KR) || defined(CONFIG_MACH_MSM8974_B1_KR) || defined(CONFIG_MACH_MSM8974_B1W) || defined(CONFIG_MACH_MSM8974_Z_OPEN_COM)
 		else if (res.change_lvl == STS_CHE_STPCHG_TO_DECCUR) {
 #ifdef CONFIG_LGE_THERMALE_CHG_CONTROL
 			bq24192_set_adjust_ibat(chip,res.dc_current);
@@ -2331,6 +2376,11 @@ static void bq24192_monitor_batt_temp(struct work_struct *work)
 		power_supply_changed(&chip->batt_psy);
 
 	bq24192_reginfo();
+
+	if(!req.is_charger){
+		if (wake_lock_active(&chip->lcs_wake_lock))
+			wake_unlock(&chip->lcs_wake_lock);
+	}
 
 	schedule_delayed_work(&chip->battemp_work,
 		MONITOR_BATTEMP_POLLING_PERIOD);
@@ -2736,6 +2786,17 @@ static int bq24192_probe(struct i2c_client *client,
 
 	i2c_set_clientdata(client, chip);
 
+#ifdef CONFIG_MACH_MSM8974_Z_US
+	if(lge_get_boot_mode() == LGE_BOOT_MODE_CHARGERLOGO)
+	{
+		in_chargerlogo = 1;
+
+		chip->term_current_ma = TERM_CURRENT_IN_PWROFF_CHG;
+		adap_tbl[1].chg_limit = CHG_CURRENT_IN_PWROFF_CHG;
+
+		pr_info("in_chargerlogo = %d, term_current = %d chg_current = %d \n", in_chargerlogo, chip->term_current_ma, adap_tbl[1].chg_limit);
+	}
+#endif
 	ret = bq24192_hw_init(chip);
 	if (ret) {
 		pr_err("bq24192_hwinit failed.ret=%d\n",ret);

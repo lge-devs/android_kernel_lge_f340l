@@ -71,8 +71,6 @@ static int felica_test_release (struct inode *inode, struct file *fp)
  */
 static ssize_t felica_test_read(struct file *fp, char *buf, size_t count, loff_t *pos)
 {
-  pr_info("CBAL current rev -> %d \n",lge_get_board_revno());
-
   return 1;
 }
 
@@ -89,7 +87,7 @@ static ssize_t felica_test_write(struct file *fp, const char *buf, size_t count,
   /* Check error */
   if(NULL == buf)
   {
-    FELICA_DEBUG_MSG_HIGH("[FELICA_TEST] ERROR - start \n");
+    FELICA_DEBUG_MSG("[FELICA_TEST] ERROR - start \n");
     return -1;
   }
 
@@ -97,11 +95,13 @@ static ssize_t felica_test_write(struct file *fp, const char *buf, size_t count,
   rc = copy_from_user(case_buf, buf, count);
   if(rc)
   {
-    FELICA_DEBUG_MSG_HIGH("[FELICA_TEST] ERROR - copy_from_user \n");
+    FELICA_DEBUG_MSG("[FELICA_TEST] ERROR - copy_from_user \n");
     return -1;
   }
 
-  FELICA_DEBUG_MSG_LOW("[FELICA_TEST] copy_from_user[%d][%d][%d] \n",case_buf[0],case_buf[1],case_buf[2]);
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA_TEST] copy_from_user[%d][%d][%d] \n",case_buf[0],case_buf[1],case_buf[2]);
+  #endif
 
   switch(case_buf[0]){
     case FFI:
@@ -284,7 +284,9 @@ void disable_open_uart(bool val)
   else
     result_open_uart = 0;
 
-  FELICA_DEBUG_MSG_LOW("[FELICA] felica_uart_open_failed - val(%d), result_open_uart(%d)  \n",val,result_open_uart);
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA] felica_uart_open_failed - val(%d), result_open_uart(%d)  \n",val,result_open_uart);
+  #endif
 }
 
 /*
@@ -299,7 +301,9 @@ void disable_close_uart(bool val)
   else
     result_close_uart = 0;
 
-  FELICA_DEBUG_MSG_LOW("[FELICA] disable_felica_uart_close - val(%d), result_close_uart(%d)  \n",val,result_close_uart);
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA] disable_felica_uart_close - val(%d), result_close_uart(%d)  \n",val,result_close_uart);
+  #endif
 }
 
 /*
@@ -314,7 +318,9 @@ void disable_available_uart(bool val)
   else
     result_available_uart = 0;
 
-  FELICA_DEBUG_MSG_LOW("[FELICA] disable_felica_uart_available - val(%d), result_availbale_uart(%d)  \n",val,result_available_uart);
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA] disable_felica_uart_available - val(%d), result_availbale_uart(%d)  \n",val,result_available_uart);
+  #endif
 }
 
 /*
@@ -329,7 +335,9 @@ void disable_read_uart(bool val)
   else
     result_read_uart = 0;
 
-  FELICA_DEBUG_MSG_LOW("[FELICA] disable_felica_uart_read - val(%d), result_read_uart(%d)  \n",val,result_read_uart);
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA] disable_felica_uart_read - val(%d), result_read_uart(%d)  \n",val,result_read_uart);
+  #endif
 }
 
 /*
@@ -344,7 +352,9 @@ void disable_write_uart(bool val)
   else
     result_write_uart = 0;
 
-  FELICA_DEBUG_MSG_LOW("[FELICA] disable_felica_uart_write - val(%d), result_write_uart(%d)  \n",val,result_write_uart);
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA] disable_felica_uart_write - val(%d), result_write_uart(%d)  \n",val,result_write_uart);
+  #endif
 }
 
 
@@ -361,7 +371,9 @@ void disable_open_pon(bool val)
   else
     result_open_pon = 0;
 
-  FELICA_DEBUG_MSG_LOW("[FELICA] disable_felica_pon_open - val(%d), result_open_pon(%d)  \n",val,result_open_pon);
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA] disable_felica_pon_open - val(%d), result_open_pon(%d)  \n",val,result_open_pon);
+  #endif
 }
 
 /*
@@ -376,7 +388,9 @@ void disable_close_pon(bool val)
   else
     result_close_pon = 0;
 
-  FELICA_DEBUG_MSG_LOW("[FELICA] disable_felica_pon_close - val(%d), result_close_pon(%d)  \n",val,result_close_pon);
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA] disable_felica_pon_close - val(%d), result_close_pon(%d)  \n",val,result_close_pon);
+  #endif
 }
 
 /*
@@ -391,7 +405,9 @@ void disable_write_pon(bool val)
   else
     result_write_pon = 1;
 
-  FELICA_DEBUG_MSG_LOW("[FELICA] disable_felica_pon_write - val(%d), result_write_pon(%d)  \n",val,result_write_pon);
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA] disable_felica_pon_write - val(%d), result_write_pon(%d)  \n",val,result_write_pon);
+  #endif
 }
 
 //2 CFI
@@ -407,7 +423,9 @@ void disable_open_cen(bool val)
   else
     result_open_cen = 0;
 
-  FELICA_DEBUG_MSG_LOW("[FELICA_CEN] disable_felica_cen_open - val(%d), result_open_cen(%d)  \n",val,result_open_cen);
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA_CEN] disable_felica_cen_open - val(%d), result_open_cen(%d)  \n",val,result_open_cen);
+  #endif
 }
 
 /*
@@ -422,7 +440,9 @@ void disable_close_cen(bool val)
   else
     result_close_cen = 0;
 
-  FELICA_DEBUG_MSG_LOW("[FELICA] disable_felica_cen_close - val(%d), result_close_cen(%d)  \n",val,result_close_cen);
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA] disable_felica_cen_close - val(%d), result_close_cen(%d)  \n",val,result_close_cen);
+  #endif
 }
 
 /*
@@ -437,7 +457,9 @@ void disable_read_cen(bool val)
   else
     result_read_cen = 1;
 
-  FELICA_DEBUG_MSG_LOW("[FELICA] disable_felica_cen_read - val(%d), result_read_cen(%d)  \n",val,result_read_cen);
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA] disable_felica_cen_read - val(%d), result_read_cen(%d)  \n",val,result_read_cen);
+  #endif
 }
 
 //2 RFS
@@ -453,7 +475,9 @@ void disable_open_rfs(bool val)
   else
     result_open_rfs = 0;
 
-  FELICA_DEBUG_MSG_LOW("[FELICA] disable_felica_rfs_open - val(%d), result_open_rfs(%d)  \n",val,result_open_rfs);
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA] disable_felica_rfs_open - val(%d), result_open_rfs(%d)  \n",val,result_open_rfs);
+  #endif
 }
 
 /*
@@ -468,7 +492,9 @@ void disable_close_rfs(bool val)
   else
     result_close_rfs = 0;
 
-  FELICA_DEBUG_MSG_LOW("[FELICA] disable_felica_rfs_close - val(%d), result_close_rfs(%d)  \n",val,result_close_rfs);
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA] disable_felica_rfs_close - val(%d), result_close_rfs(%d)  \n",val,result_close_rfs);
+  #endif
 }
 
 /*
@@ -483,7 +509,9 @@ void disable_read_rfs(bool val)
   else
     result_read_rfs = 0;
 
-  FELICA_DEBUG_MSG_LOW("[FELICA] disable_felica_rfs_read - val(%d), result_read_rfs(%d)  \n",val,result_read_rfs);
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA] disable_felica_rfs_read - val(%d), result_read_rfs(%d)  \n",val,result_read_rfs);
+  #endif
 }
 
 //2 RWFI
@@ -499,7 +527,9 @@ void disable_open_rws(bool val)
   else
     result_open_rws = 0;
 
-  FELICA_DEBUG_MSG_LOW("[FELICA] disable_felica_rws_open - val(%d), result_open_rws(%d)  \n",val,result_open_rws);
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA] disable_felica_rws_open - val(%d), result_open_rws(%d)  \n",val,result_open_rws);
+  #endif
 }
 
 /*
@@ -514,7 +544,9 @@ void disable_close_rws(bool val)
   else
     result_close_rws = 0;
 
-  FELICA_DEBUG_MSG_LOW("[FELICA] disable_felica_rws_close - val(%d), result_close_rws(%d)  \n",val,result_close_rws);
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA] disable_felica_rws_close - val(%d), result_close_rws(%d)  \n",val,result_close_rws);
+  #endif
 }
 
 /*
@@ -529,7 +561,9 @@ void disable_read_rws(bool val)
   else
     result_read_rws = 0;
 
-  FELICA_DEBUG_MSG_LOW("[FELICA] disable_felica_rws_read - val(%d), result_read_rws(%d)  \n",val,result_read_rws);
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA] disable_felica_rws_read - val(%d), result_read_rws(%d)  \n",val,result_read_rws);
+  #endif
 }
 
 
@@ -567,7 +601,7 @@ static int felica_test_init(void)
   rc = misc_register(&felica_test_device);
   if (rc < 0)
   {
-    FELICA_DEBUG_MSG_MED("[FELICA_TEST] FAIL!! can not register felica_cal \n");
+    FELICA_DEBUG_MSG("[FELICA_TEST] FAIL!! can not register felica_cal \n");
     return rc;
   }
   return 0;

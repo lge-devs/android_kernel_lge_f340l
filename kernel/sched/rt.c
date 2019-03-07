@@ -560,7 +560,7 @@ static inline struct rt_bandwidth *sched_rt_bandwidth(struct rt_rq *rt_rq)
 static int do_balance_runtime(struct rt_rq *rt_rq)
 {
 	struct rt_bandwidth *rt_b = sched_rt_bandwidth(rt_rq);
-	struct root_domain *rd = rq_of_rt_rq(rt_rq)->rd;
+	struct root_domain *rd = cpu_rq(smp_processor_id())->rd;
 	int i, weight, more = 0;
 	u64 rt_period;
 
@@ -691,6 +691,15 @@ balanced:
 	}
 }
 
+static void disable_runtime(struct rq *rq)
+{
+	unsigned long flags;
+
+	raw_spin_lock_irqsave(&rq->lock, flags);
+	__disable_runtime(rq);
+	raw_spin_unlock_irqrestore(&rq->lock, flags);
+}
+
 static void __enable_runtime(struct rq *rq)
 {
 	rt_rq_iter_t iter;
@@ -712,6 +721,37 @@ static void __enable_runtime(struct rq *rq)
 		rt_rq->rt_throttled = 0;
 		raw_spin_unlock(&rt_rq->rt_runtime_lock);
 		raw_spin_unlock(&rt_b->rt_runtime_lock);
+	}
+}
+
+static void enable_runtime(struct rq *rq)
+{
+	unsigned long flags;
+
+	raw_spin_lock_irqsave(&rq->lock, flags);
+	__enable_runtime(rq);
+	raw_spin_unlock_irqrestore(&rq->lock, flags);
+}
+
+int update_runtime(struct notifier_block *nfb, unsigned long action, void *hcpu)
+{
+	int cpu = (int)(long)hcpu;
+
+	switch (action) {
+	case CPU_DOWN_PREPARE:
+	case CPU_DOWN_PREPARE_FROZEN:
+		disable_runtime(cpu_rq(cpu));
+		return NOTIFY_OK;
+
+	case CPU_DOWN_FAILED:
+	case CPU_DOWN_FAILED_FROZEN:
+	case CPU_ONLINE:
+	case CPU_ONLINE_FROZEN:
+		enable_runtime(cpu_rq(cpu));
+		return NOTIFY_OK;
+
+	default:
+		return NOTIFY_DONE;
 	}
 }
 
@@ -831,7 +871,12 @@ static int sched_rt_runtime_exceeded(struct rt_rq *rt_rq)
 
 			if (!once) {
 				once = true;
+#ifdef CONFIG_MACH_LGE
+				printk_sched("sched: RT throttling activated => task_name [%s]\n", \
+					rt_rq->rq->curr->comm);
+#else
 				printk_sched("sched: RT throttling activated\n");
+#endif
 			}
 		} else {
 			/*
@@ -1314,8 +1359,12 @@ static struct task_struct *_pick_next_task_rt(struct rq *rq)
 	if (!rt_rq->rt_nr_running)
 		return NULL;
 
-	if (rt_rq_throttled(rt_rq))
-		return NULL;
+#ifdef CONFIG_MACH_MSM8974_Z_US
+      if(rq->online && rt_rq_throttled(rt_rq))
+#else
+      if(rt_rq_throttled(rt_rq))
+#endif
+            return NULL;
 
 	do {
 		rt_se = pick_next_rt_entity(rq, rt_rq);
@@ -1324,6 +1373,12 @@ static struct task_struct *_pick_next_task_rt(struct rq *rq)
 	} while (rt_rq);
 
 	p = rt_task_of(rt_se);
+#ifdef CONFIG_MACH_MSM8974_Z_US
+    if (rq->curr->sched_class == &fair_sched_class) {
+        rq->skip_clock_update = 0;
+        update_rq_clock(rq);
+    }
+#endif
 	p->se.exec_start = rq->clock_task;
 
 	return p;

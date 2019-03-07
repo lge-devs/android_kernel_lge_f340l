@@ -20,7 +20,7 @@
 #define MXT_PATCH_MAX_TLINE			255
 #define MXT_PATCH_MAX_TRIG			255
 #define MXT_PATCH_MAX_ITEM			255
-#define MXT_PATCH_MAX_TYPE			128
+#define MXT_PATCH_MAX_TYPE			255
 #define MXT_PATCH_MAX_CON			255
 #define MXT_PATCH_MAX_EVENT			255
 #define MXT_PATCH_MAX_MSG_SIZE		10
@@ -957,12 +957,6 @@ static int mxt_patch_parse_test_line(struct mxt_data *data,
 			}
 		}
 		else{
-			if(ptline->option&0x02){
-				if(check_cnt != NULL){
-					*check_cnt=0;
-					__mxt_patch_ddebug(data, "CHEK CNT CLEAR OPT:2\n");
-				}
-			}
 			if(data->patch.option&0x04){
 			    if(do_action&&psrc_item){// Skip if any item was failed
 				    __mxt_patch_ddebug(data, "SKIP REMAINED ITEMS %d\n", i);
@@ -1460,10 +1454,8 @@ static int mxt_patch_test_trigger(struct mxt_data *data,
 	u8	tmsg[MXT_PATCH_MAX_MSG_SIZE];
 
 	if(!ppatch || !ptrigger_addr){
-		/* Too many logs in FTM mode
 		dev_err(&data->client->dev, "%s ptrigger_addr is null\n",
 			__func__);
-			*/
 		return 1;
 	}
 	memset(tmsg, 0, MXT_PATCH_MAX_MSG_SIZE);
@@ -1493,13 +1485,6 @@ int mxt_patch_test_event(struct mxt_data *data,
 		mxt_patch_parse_event(data, ppatch+pevent_addr[event_id],
 			true);
 	}
-#ifdef MXT_FACTORY
-	/* disable patch after writing config of FTM mode */
-	if(data->ta_status == MXT_PATCH_FTM_BAT_MODE_EVENT || data->ta_status == MXT_PATCH_FTM_TA_MODE_EVENT){
-		data->patch.start = false;
-		data->patch.patch = NULL;
-	}
-#endif
 	return 0;
 }
 
@@ -1697,12 +1682,7 @@ static void mxt_patch_T100_object(struct mxt_data *data,
 	
 			if(data->patch.start){
 				mxt_patch_make_source(data, &tsrc);
-
-				if((data->patch.option & 0x08)==0x08
-					&&(tsrc.finger_cnt==0)){ //20140217#2
-					mxt_patch_test_source(data, data->patch.src_item);
-				}
-			}
+			}	
 #ifdef MXT_PATCH_LOCK_CHECK
 			if(data->patch.cur_stage_opt && 
 				data->patch.finger_cnt==0){

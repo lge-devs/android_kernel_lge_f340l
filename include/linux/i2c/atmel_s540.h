@@ -38,7 +38,7 @@
 #ifdef MXT_LPWG
 #ifdef ALPHA_FW
 #define MXT_LATEST_FW_VERSION       0x50
-#define MXT_LATEST_FW_BUILD         0xF6
+#define MXT_LATEST_FW_BUILD         0xF5
 #else
 #define MXT_LATEST_FW_VERSION       0x10
 #define MXT_LATEST_FW_BUILD         0xEE
@@ -320,7 +320,6 @@ enum{
 	TIME_CURR_TIME,
 	TIME_RESUME_END,
 	TIME_TA_DETECT,
-	TIME_CAL_START,
 	TIME_EX_PROFILE_MAX
 };
 
@@ -623,7 +622,6 @@ struct mxt_data {
 
 	/* Indicates whether device is in suspend */
 	bool suspended;
-	bool mxt_suspended;
 #ifdef I2C_SUSPEND_WORKAROUND
 	struct delayed_work check_suspended_work;
 #endif
@@ -658,7 +656,7 @@ extern void mxt_patch_message(struct mxt_data *data, struct mxt_message *message
 extern int mxt_patch_init(struct mxt_data *data, u8* ppatch);
 #endif
 #ifdef I2C_SUSPEND_WORKAROUND
-extern bool atmel_touch_i2c_suspended;
+extern bool i2c_suspended;
 #endif
 
 #define	REPORT_ID_TO_OBJECT(rid, data)			\

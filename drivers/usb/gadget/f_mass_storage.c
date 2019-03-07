@@ -362,13 +362,6 @@ static const char fsg_string_interface[] = "Mass Storage";
 #define SUB_ACK_STATUS_CGO      0x04
 #define SUB_ACK_STATUS_TET      0x05
 #define SUB_ACK_STATUS_PTP      0x06
-#ifdef CONFIG_USB_G_LGE_MULTIPLE_CONFIGURATION
-/*For multiple configuration, but actually ISO don't know this.
- *TODO : Need to clear this interface.
- */
-#define SUB_ACK_STATUS_MUL      0x07
-#endif
-
 #endif /* CONFIG_USB_G_LGE_ANDROID_AUTORUN */
 
 #include "storage_common.c"
@@ -403,7 +396,7 @@ static char *envp_mode[][2] = {
 	{"AUTORUN=device_info", NULL},
 };
 #endif
-#ifdef CONFIG_DWC3_MSM_BC_12_VZW_SUPPORT
+#ifdef CONFIG_USB_G_LGE_ANDROID_AUTORUN_VZW
 static char *usb_drv_envp_mode[][2] = {
 	{"USB_DRV=uninstalled", NULL},
 	{"USB_DRV=installed", NULL},
@@ -440,9 +433,6 @@ enum check_mode_state {
 	ACK_STATUS_CGO = SUB_ACK_STATUS_CGO,
 	ACK_STATUS_TET = SUB_ACK_STATUS_TET,
 	ACK_STATUS_PTP = SUB_ACK_STATUS_PTP,
-#ifdef CONFIG_USB_G_LGE_MULTIPLE_CONFIGURATION
-	ACK_STATUS_MUL = SUB_ACK_STATUS_MUL,
-#endif
 	ACK_STATUS_ERR,
 };
 
@@ -1699,6 +1689,7 @@ static int do_read_toc(struct fsg_common *common, struct fsg_buffhd *bh)
 	store_cdrom_address(&buf[16], msf, curlun->num_sectors);
 	return 20;
 #endif
+
 }
 
 static int do_mode_sense(struct fsg_common *common, struct fsg_buffhd *bh)
@@ -2329,7 +2320,7 @@ static int check_command_size_in_blocks(struct fsg_common *common,
 			mask, needs_medium, name);
 }
 
-#ifdef CONFIG_DWC3_MSM_BC_12_VZW_SUPPORT
+#ifdef CONFIG_USB_G_LGE_ANDROID_AUTORUN_VZW
 void send_drv_state_uevent(int installed)
 {
 	pr_info("%s: VZW_USB_DRV_STATE - %s\n", __func__,
@@ -3307,7 +3298,6 @@ static ssize_t fsg_show_usbmode(struct device *dev,
 {
 	int ret;
 	ret = sprintf(buf, "%d", user_mode);
-	pr_info("autorun read user mode : %d\n", user_mode);
 	return ret;
 }
 
@@ -3325,11 +3315,12 @@ static ssize_t fsg_store_usbmode(struct device *dev,
 	user_mode = (unsigned int)tmp;
 	mutex_unlock(&autorun_lock);
 
-	pr_info("autorun write user mode : %d\n", user_mode);
+	pr_info("autorun user mode : %d\n", user_mode);
 
 	return count;
 }
 #endif
+
 /*************************** DEVICE ATTRIBUTES ***************************/
 
 /* Write permission is checked per LUN in store_*() functions. */
@@ -3410,6 +3401,15 @@ static struct fsg_common *fsg_common_init(struct fsg_common *common,
 	common->ep0 = gadget->ep0;
 	common->ep0req = cdev->req;
 	common->cdev = cdev;
+
+	/* Maybe allocate device-global string IDs, and patch descriptors */
+	if (fsg_strings[FSG_STRING_INTERFACE].id == 0) {
+		rc = usb_string_id(cdev);
+		if (unlikely(rc < 0))
+			goto error_release;
+		fsg_strings[FSG_STRING_INTERFACE].id = rc;
+		fsg_intf_desc.iInterface = rc;
+	}
 
 	/*
 	 * Create the LUNs, open their backing files, and register the

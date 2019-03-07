@@ -973,10 +973,7 @@ EXPORT_SYMBOL_GPL(crypto_xor);
 
 static int __init crypto_algapi_init(void)
 {
-//Move proc init to tcrypt on FIPS device
-#ifndef CONFIG_CRYPTO_FIPS
 	crypto_init_proc();
-#endif
 	return 0;
 }
 

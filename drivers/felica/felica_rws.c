@@ -42,15 +42,18 @@ static int invoke_felica_apk(void)
 {
   char *argv[] = { "/system/bin/sh","/system/bin/am", "start", "-n", FELICA_INTENT, "--activity-clear-top", NULL };
 
-  //static char *envp[] = {FELICA_LD_LIBRARY_PATH,FELICA_BOOTCLASSPATH,FELICA_PATH,NULL };
-  static char *envp[] = {FELICA_PATH, NULL };
+  static char *envp[] = {FELICA_LD_LIBRARY_PATH,FELICA_BOOTCLASSPATH,FELICA_PATH,NULL };
   int rc = 0;
 
-  FELICA_DEBUG_MSG_HIGH("[FELICA_RWS] invoke felica app... \n");
+  #ifdef FEATURE_DEBUG_HIGH
+  FELICA_DEBUG_MSG("[FELICA_RWS] invoke felica app... \n");
+  #endif
 
   rc = call_usermodehelper( argv[0], argv, envp, UMH_WAIT_EXEC );
 
-  FELICA_DEBUG_MSG_HIGH("[FELICA_RWS] felica app result : %d \n", rc);
+  #ifdef FEATURE_DEBUG_HIGH
+  FELICA_DEBUG_MSG("[FELICA_RWS] felica app result : %d \n", rc);
+  #endif
 
   return rc;
 }
@@ -64,27 +67,38 @@ static void felica_int_low_work(struct work_struct *data)
 
   usermodehelper_enable();
 
-  FELICA_DEBUG_MSG_LOW("[FELICA_RWS] felica_int_low_work - start \n");
-
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA_RWS] felica_int_low_work - start \n");
+  #endif
 
   rc = invoke_felica_apk();
 
   if(rc)
   {
-    FELICA_DEBUG_MSG_HIGH("[FELICA_RWS] Error - invoke app \n");
-
+    #ifdef FEATURE_DEBUG_HIGH
+    FELICA_DEBUG_MSG("[FELICA_RWS] Error - invoke app \n");
+	#endif
     unlock_felica_wake_lock();
   }
 
-  FELICA_DEBUG_MSG_LOW("[FELICA_RWS] felica_int_low_work - end \n");
-
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA_RWS] felica_int_low_work - end \n");
+  #endif
 
   enable_irq(gpio_to_irq(felica_get_int_gpio_num()));
 }
 
 static irqreturn_t felica_int_low_isr(int irq, void *dev_id)
 {
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA_RWS] felica_int_low_isr - start \n");
+  #endif
+
   schedule_delayed_work(&felica_int_work,0);
+
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA_RWS] felica_int_low_isr - end \n");
+  #endif
 
   return IRQ_HANDLED;
 }
@@ -100,23 +114,27 @@ static int felica_rws_open (struct inode *inode, struct file *fp)
 
   if(1 == isopen)
   {
-    FELICA_DEBUG_MSG_HIGH("[FELICA_RWS] felica_rws_open - already open \n");
-
+    #ifdef FEATURE_DEBUG_HIGH
+    FELICA_DEBUG_MSG("[FELICA_RWS] felica_rws_open - already open \n");
+    #endif
     return -1;
   }
   else
   {
-    FELICA_DEBUG_MSG_LOW("[FELICA_RWS] felica_rws_open - start \n");
-
+    #ifdef FEATURE_DEBUG_LOW
+    FELICA_DEBUG_MSG("[FELICA_RWS] felica_rws_open - start \n");
+    #endif
     isopen = 1;
   }
 
   rc = felica_gpio_open(felica_get_int_gpio_num(), GPIO_DIRECTION_IN, GPIO_HIGH_VALUE);
 
-  FELICA_DEBUG_MSG_LOW("[FELICA_RWS] felica_rws_open - end \n");
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA_RWS] felica_rws_open - end \n");
+  #endif
 
 #ifdef FELICA_FN_DEVICE_TEST
-  FELICA_DEBUG_MSG_LOW("[FELICA_RWS] felica_rws_open - result(%d) \n",result_open_rws);
+  FELICA_DEBUG_MSG("[FELICA_RWS] felica_rws_open - result(%d) \n",result_open_rws);
   return result_open_rws;
 #else
     return rc;
@@ -133,34 +151,40 @@ static ssize_t felica_rws_read(struct file *fp, char *buf, size_t count, loff_t 
   int rc = 0;
   int getvalue = GPIO_HIGH_VALUE;    /* Default status*/
 
-  FELICA_DEBUG_MSG_LOW("[FELICA_RWS] felica_rws_read - start \n");
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA_RWS] felica_rws_read - start \n");
+  #endif
 
   /* Check error */
   if(NULL == fp)
 	{
-	  FELICA_DEBUG_MSG_HIGH("[FELICA_RWS] ERROR fp is NULL \n");
-
+	#ifdef FEATURE_DEBUG_HIGH
+	  FELICA_DEBUG_MSG("[FELICA_RWS] ERROR fp is NULL \n");
+	#endif
 	  return -1;
 	}
   
 	if(NULL == buf)
 	{
-	  FELICA_DEBUG_MSG_HIGH("[FELICA_RWS] ERROR buf is NULL \n");
-
+	#ifdef FEATURE_DEBUG_HIGH
+	  FELICA_DEBUG_MSG("[FELICA_RWS] ERROR buf is NULL \n");
+	#endif
 	  return -1;
 	}
   
 	if(1 != count)
 	{
-	  FELICA_DEBUG_MSG_HIGH("[FELICA_RWS] ERROR count(%d) \n",count);
-
+	#ifdef FEATURE_DEBUG_HIGH
+	  FELICA_DEBUG_MSG("[FELICA_RWS] ERROR count(%d) \n",count);
+	#endif
 	  return -1;
 	}
   
 	if(NULL == pos)
 	{
-	  FELICA_DEBUG_MSG_HIGH("[FELICA_RWS] ERROR pos is NULL \n");
-
+	#ifdef FEATURE_DEBUG_HIGH
+	  FELICA_DEBUG_MSG("[FELICA_RWS] ERROR pos is NULL \n");
+	#endif
 	  return -1;
 	}
 
@@ -170,30 +194,35 @@ static ssize_t felica_rws_read(struct file *fp, char *buf, size_t count, loff_t 
 
   if((GPIO_LOW_VALUE != getvalue)&&(GPIO_HIGH_VALUE != getvalue))
   {
-    FELICA_DEBUG_MSG_HIGH("[FELICA_RFS] ERROR - getvalue is out of range \n");
-
+    #ifdef FEATURE_DEBUG_HIGH
+    FELICA_DEBUG_MSG("[FELICA_RFS] ERROR - getvalue is out of range \n");
+	#endif
     return -1;
   }
 
 /* Change GPIO value to RWS value */
   getvalue = getvalue ? RWS_AVAILABLE : RWS_NOT_AVAILABLE;
 
-  FELICA_DEBUG_MSG_MED("[FELICA_RWS] RWS status : %d \n", getvalue);
-
+  #ifdef FEATURE_DEBUG_MED
+  FELICA_DEBUG_MSG("[FELICA_RWS] RWS status : %d \n", getvalue);
+  #endif
 
 /* Copy value to user memory */
   rc = copy_to_user((void *)buf, (void *)&getvalue, count);
   if(rc)
   {
-    FELICA_DEBUG_MSG_HIGH("[FELICA_RWS] ERROR -  copy_to_user \n");
-
+    #ifdef FEATURE_DEBUG_HIGH
+    FELICA_DEBUG_MSG("[FELICA_RWS] ERROR -  copy_to_user \n");
+	#endif
     return rc;
   }
 
-  FELICA_DEBUG_MSG_LOW("[FELICA_RWS] felica_rfs_read - end \n");
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA_RWS] felica_rfs_read - end \n");
+  #endif
 
 #ifdef FELICA_FN_DEVICE_TEST
-  FELICA_DEBUG_MSG_LOW("[FELICA_RWS] felica_rfs_read - result(%d) \n",result_read_rws);
+  FELICA_DEBUG_MSG("[FELICA_RWS] felica_rfs_read - result(%d) \n",result_read_rws);
   if(result_read_rws != -1)
     result_read_rws = count;
   return result_read_rws;
@@ -210,11 +239,15 @@ static ssize_t felica_rws_read(struct file *fp, char *buf, size_t count, loff_t 
 */
 static int felica_rws_release (struct inode *inode, struct file *fp)
 {
-  FELICA_DEBUG_MSG_LOW("[FELICA_RWS] felica_rws_release - start \n");
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA_RWS] felica_rws_release - start \n");
+  #endif
 
   if(0 == isopen)
   {
-    FELICA_DEBUG_MSG_HIGH("[FELICA_RWS] felica_rws_release - not open \n");
+    #ifdef FEATURE_DEBUG_HIGH
+    FELICA_DEBUG_MSG("[FELICA_RWS] felica_rws_release - not open \n");
+    #endif
 
     return -1;
   }
@@ -222,11 +255,13 @@ static int felica_rws_release (struct inode *inode, struct file *fp)
   {
     isopen = 0;
 
-    FELICA_DEBUG_MSG_LOW("[FELICA_RWS] felica_rws_release - end \n");
+    #ifdef FEATURE_DEBUG_LOW
+    FELICA_DEBUG_MSG("[FELICA_RWS] felica_rws_release - end \n");
+    #endif
   }
 
 #ifdef FELICA_FN_DEVICE_TEST
-  FELICA_DEBUG_MSG_LOW("[FELICA_RWS] felica_rws_release - result(%d) \n",result_close_rws);
+  FELICA_DEBUG_MSG("[FELICA_RWS] felica_rws_release - result(%d) \n",result_close_rws);
   return result_close_rws;
 #else
     return 0;
@@ -257,14 +292,17 @@ static int felica_rws_init(void)
 {
   int rc = 0;
 
-  FELICA_DEBUG_MSG_LOW("[FELICA_RWS] felica_rws_init - start \n");
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA_RWS] felica_rws_init - start \n");
+  #endif
 
   /* register the device file */
   rc = misc_register(&felica_rws_device);
   if (rc)
   {
-    FELICA_DEBUG_MSG_HIGH("[FELICA_RWS] FAIL!! can not register felica_int \n");
-
+    #ifdef FEATURE_DEBUG_HIGH
+    FELICA_DEBUG_MSG("[FELICA_RWS] FAIL!! can not register felica_int \n");
+	#endif
     return rc;
   }
 
@@ -272,28 +310,35 @@ static int felica_rws_init(void)
 
   if (rc)
   {
-    FELICA_DEBUG_MSG_HIGH("[FELICA_RWS] FAIL!! can not request_irq = %d \n",rc);
-
+    #ifdef FEATURE_DEBUG_HIGH
+    FELICA_DEBUG_MSG("[FELICA_RWS] FAIL!! can not request_irq = %d \n",rc);
+	#endif
     return rc;
   }
 
 /* wake up a device from sleep mode by coming up this interrupts */
   irq_set_irq_wake(gpio_to_irq(felica_get_int_gpio_num()),1);
 
-  FELICA_DEBUG_MSG_LOW("[FELICA_RWS] felica_rws_init - end \n");
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA_RWS] felica_rws_init - end \n");
+  #endif
 
   return 0;
 }
 
 static void felica_rws_exit(void)
 {
-  FELICA_DEBUG_MSG_LOW("[FELICA_INT] felica_rws_exit - start \n");
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA_INT] felica_rws_exit - start \n");
+  #endif
 
   free_irq(gpio_to_irq(felica_get_int_gpio_num()), NULL);
 
   misc_deregister(&felica_rws_device);
 
-  FELICA_DEBUG_MSG_LOW("[FELICA_INT] felica_rws_exit - end \n");
+  #ifdef FEATURE_DEBUG_LOW
+  FELICA_DEBUG_MSG("[FELICA_INT] felica_rws_exit - end \n");
+  #endif
 }
 
 module_init(felica_rws_init);

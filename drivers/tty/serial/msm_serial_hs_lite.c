@@ -58,6 +58,8 @@
 #include <asm/mach-types.h>
 #include "msm_serial_hs_hwreg.h"
 
+#include <linux/async.h>
+
 /*
  * There are 3 different kind of UART Core available on MSM.
  * High Speed UART (i.e. Legacy HSUART), GSBI based HSUART
@@ -526,16 +528,15 @@ static void msm_hsl_start_tx(struct uart_port *port)
 {
 	struct msm_hsl_port *msm_hsl_port = UART_TO_MSM(port);
 
+#ifdef CONFIG_EARJACK_DEBUGGER
+        if (!(lge_get_uart_mode() & UART_MODE_EN_BMSK) && is_console(port))
+                return;
+#endif
+
 	if (port->suspended) {
 		pr_err("%s: System is in Suspend state\n", __func__);
 		return;
 	}
-
-#ifdef CONFIG_MACH_LGE
-	if (!(lge_get_uart_mode() & UART_MODE_EN_BMSK) && is_console(port))
-		return;
-#endif
-
 	msm_hsl_port->imr |= UARTDM_ISR_TXLEV_BMSK;
 	msm_hsl_write(port, msm_hsl_port->imr,
 		regmap[msm_hsl_port->ver_id][UARTDM_IMR]);
@@ -758,9 +759,9 @@ static unsigned int msm_hsl_tx_empty(struct uart_port *port)
 	unsigned int ret;
 	unsigned int vid = UART_TO_MSM(port)->ver_id;
 
-#ifdef CONFIG_MACH_LGE
-	if (!(lge_get_uart_mode() & UART_MODE_EN_BMSK) && is_console(port))
-		return 1;
+#ifdef CONFIG_EARJACK_DEBUGGER
+        if (!(lge_get_uart_mode() & UART_MODE_EN_BMSK) && is_console(port))
+                return 1;
 #endif
 
 	ret = (msm_hsl_read(port, regmap[vid][UARTDM_SR]) &
@@ -980,7 +981,7 @@ static void msm_hsl_set_baud_rate(struct uart_port *port,
 	msm_hsl_write(port, STALE_EVENT_ENABLE, regmap[vid][UARTDM_CR]);
 }
 
-#ifndef CONFIG_MACH_LGE
+#ifndef CONFIG_EARJACK_DEBUGGER
 static void msm_hsl_init_clock(struct uart_port *port)
 {
 	clk_en(port, 1);
@@ -1115,6 +1116,7 @@ static void msm_hsl_set_termios(struct uart_port *port,
 		msm_hsl_write(port, 0x03, UARTDM_IRDA_ADDR);
 	}
 	#endif
+ 
 	/*
 	 * Due to non-availability of 3.2 Mbps baud rate as standard baud rate
 	 * with TTY/serial core. Map 200 BAUD to 3.2 Mbps
@@ -1482,7 +1484,7 @@ static void msm_hsl_console_write(struct console *co, const char *s,
 
 	BUG_ON(co->index < 0 || co->index >= UART_NR);
 
-#ifdef CONFIG_MACH_LGE
+#ifdef CONFIG_EARJACK_DEBUGGER
 	if (!(lge_get_uart_mode() & UART_MODE_EN_BMSK))
 		return;
 #endif
@@ -1523,7 +1525,7 @@ static int msm_hsl_console_setup(struct console *co, char *options)
 
 	port->cons = co;
 
-#ifndef CONFIG_MACH_LGE
+#ifndef CONFIG_EARJACK_DEBUGGER
 	pm_runtime_get_noresume(port->dev);
 
 #ifndef CONFIG_PM_RUNTIME
@@ -1729,7 +1731,7 @@ static struct msm_serial_hslite_platform_data
 
 static atomic_t msm_serial_hsl_next_id = ATOMIC_INIT(0);
 
-#ifdef CONFIG_MACH_LGE
+#ifdef CONFIG_EARJACK_DEBUGGER
 /* Put ttyHSL0 to rpm suspend status and update uart mode.
  * This function assumes that the console has been already registered. */
 int msm_serial_set_uart_console(int enable)
@@ -1930,7 +1932,7 @@ static int __devinit msm_serial_hsl_probe(struct platform_device *pdev)
 	if (msm_hsl_port->pclk)
 		clk_disable_unprepare(msm_hsl_port->pclk);
 
-#ifdef CONFIG_MACH_LGE
+#ifdef CONFIG_EARJACK_DEBUGGER
 	if (!(lge_get_uart_mode() & UART_MODE_ALWAYS_ON_BMSK) && is_console(port))
 	{
 		lge_set_uart_mode(lge_get_uart_mode() | UART_MODE_INIT_BMSK);
@@ -1942,6 +1944,7 @@ static int __devinit msm_serial_hsl_probe(struct platform_device *pdev)
 	}
 #endif
 err:
+
 	return ret;
 }
 
@@ -1974,6 +1977,7 @@ static int __devexit msm_serial_hsl_remove(struct platform_device *pdev)
 	return 0;
 }
 
+
 #ifdef CONFIG_PM
 static int msm_serial_hsl_suspend(struct device *dev)
 {
@@ -1982,7 +1986,7 @@ static int msm_serial_hsl_suspend(struct device *dev)
 	port = get_port_from_line(get_line(pdev));
 
 	if (port) {
-#ifdef CONFIG_MACH_LGE
+#ifdef CONFIG_EARJACK_DEBUGGER
 		uart_suspend_port(&msm_hsl_uart_driver, port);
 #else
 		if (is_console(port))
@@ -2004,7 +2008,7 @@ static int msm_serial_hsl_resume(struct device *dev)
 	port = get_port_from_line(get_line(pdev));
 
 	if (port) {
-#ifdef CONFIG_MACH_LGE
+#ifdef CONFIG_EARJACK_DEBUGGER
 		uart_resume_port(&msm_hsl_uart_driver, port);
 #else
 		uart_resume_port(&msm_hsl_uart_driver, port);
@@ -2030,7 +2034,7 @@ static int msm_hsl_runtime_suspend(struct device *dev)
 	port = get_port_from_line(get_line(pdev));
 
 	dev_dbg(dev, "pm_runtime: suspending\n");
-#ifdef CONFIG_MACH_LGE
+#ifdef CONFIG_EARJACK_DEBUGGER
 	if (port)
 		uart_suspend_port(&msm_hsl_uart_driver, port);
 #else
@@ -2046,7 +2050,7 @@ static int msm_hsl_runtime_resume(struct device *dev)
 	port = get_port_from_line(get_line(pdev));
 
 	dev_dbg(dev, "pm_runtime: resuming\n");
-#ifdef CONFIG_MACH_LGE
+#ifdef CONFIG_EARJACK_DEBUGGER
 	if (port)
 		uart_resume_port(&msm_hsl_uart_driver, port);
 #else
@@ -2073,6 +2077,15 @@ static struct platform_driver msm_hsl_platform_driver = {
 	},
 };
 
+static void __init msm_serial_init_async(void *data, async_cookie_t cookie)
+{
+	int ret;
+
+	ret = platform_driver_register(&msm_hsl_platform_driver);
+	if (unlikely(ret))
+		uart_unregister_driver(&msm_hsl_uart_driver);
+}
+
 static int __init msm_serial_hsl_init(void)
 {
 	int ret;
@@ -2084,11 +2097,13 @@ static int __init msm_serial_hsl_init(void)
 	debug_base = debugfs_create_dir("msm_serial_hsl", NULL);
 	if (IS_ERR_OR_NULL(debug_base))
 		pr_err("Cannot create debugfs dir\n");
-
+#ifndef CONFIG_MACH_LGE
 	ret = platform_driver_register(&msm_hsl_platform_driver);
 	if (unlikely(ret))
 		uart_unregister_driver(&msm_hsl_uart_driver);
-
+#else
+	async_schedule(msm_serial_init_async, NULL);
+#endif
 	pr_info("driver initialized\n");
 
 	return ret;

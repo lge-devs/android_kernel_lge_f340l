@@ -254,8 +254,7 @@ int fuji_ois_init_cmd(int limit, int ver)
 		RegWriteA(0x609D,0xFFFF & (uint16_t)gyro_signed_offset_y);	
 
 		RegWriteA(0x6023, 0x04);
-		pr_info("%s done\n", __func__);
-		usleep(50000); /* wait 50ms */
+		usleep(200000); /* wait 200ms */
 
 		break;
 	}
@@ -281,7 +280,7 @@ int fuji_ois_gyro_calibration(int ver)
 	RegWriteA(0x6088, 0x00);
 	usleep(10000);
 	if (!fuji_ois_poll_ready(100)) { 		
-		printk("%s fuji_ois_poll_ready error \n", __func__);
+		CDBG("%s fuji_ois_poll_ready error \n", __func__);
 		return OIS_INIT_TIMEOUT;
 	}
 	
@@ -300,7 +299,7 @@ int fuji_ois_gyro_calibration(int ver)
 	usleep(10000);
 	
 	if (!fuji_ois_poll_ready(100)) { 		
-		printk("%s fuji_ois_poll_ready error \n", __func__);
+		CDBG("%s fuji_ois_poll_ready error \n", __func__);
 		return OIS_INIT_TIMEOUT; 
 	}
 	RamReadA(0x608A, &gyro_offset_y); /* 21 */
@@ -328,9 +327,9 @@ int fuji_ois_gyro_calibration(int ver)
 
 	/* 1dps */
 	if ((abs(gyro_signed_diff_x) > 262) || (abs(gyro_signed_diff_y) > 262)) {
-		printk("Gyro Offset Diff Y is FAIL!!!  %d %x\n",gyro_signed_diff_y,
+		CDBG("Gyro Offset Diff Y is FAIL!!!  %d %x\n",gyro_signed_diff_y,
 			gyro_signed_diff_y);		
-		printk("Gyro Offset Diff Y is FAIL!!!  %d %x\n",gyro_signed_diff_y,
+		CDBG("Gyro Offset Diff Y is FAIL!!!  %d %x\n",gyro_signed_diff_y,
 			gyro_signed_diff_y);		
 		return OIS_FAIL;
 	}
@@ -401,9 +400,9 @@ int fuji_ois_gyro_calibration(int ver)
 
 	if ((abs(gyro_signed_differences_x) > 262) ||
 		(abs(gyro_signed_differences_y) > 262)) {
-		printk("Differences X is FAIL!!! %d %x\n",gyro_signed_differences_x,
+		CDBG("Differences X is FAIL!!! %d %x\n",gyro_signed_differences_x,
 			gyro_signed_differences_x);
-		printk("Differences Y is FAIL!!! %d %x\n",gyro_signed_differences_y,
+		CDBG("Differences Y is FAIL!!! %d %x\n",gyro_signed_differences_y,
 			gyro_signed_differences_y);
 		return OIS_FAIL;
 	}
@@ -487,13 +486,13 @@ int32_t	fuji_ois_on (enum ois_ver_t ver)
 
 	rc = fuji_bin_download(FF_VERX_REL_BIN_DATA);
 	if (rc < 0)	{
-		printk("%s: init fail \n", __func__);
+		CDBG("%s: init fail \n", __func__);
 		return rc;
 	}
 	
 	rc = fuji_ois_init_cmd(LIMIT_OIS_ON_RETRY,ver);
 	if (rc < 0)	{
-		printk("%s: init fail \n", __func__);
+		CDBG("%s: init fail \n", __func__);
 		return rc;
 	}
 
@@ -512,7 +511,7 @@ int32_t	fuji_ois_on (enum ois_ver_t ver)
 		} while (rc < 0 && retry++ < LIMIT_GYRO_CALIBRATION);
 
 		if (rc < 0) {
-			printk("%s: gyro cal fail \n", __func__);
+			CDBG("%s: gyro cal fail \n", __func__);
 			rc = OIS_INIT_GYRO_ADJ_FAIL; /* gyro failed. */
 		}
 		
@@ -608,9 +607,9 @@ int32_t fuji_ois_stat(struct msm_sensor_ois_info_t *ois_stat)
 	/* 3 dsp */
 	if ((abs(gyro_signed_diff_x) > (262 * 3)) ||
 		(abs(gyro_signed_diff_y) > (262 * 3))) {
-		printk("Gyro Offset Diff X is FAIL!!! %d 0x%x\n", gyro_signed_diff_x,
+		CDBG("Gyro Offset Diff X is FAIL!!! %d 0x%x\n", gyro_signed_diff_x,
 			gyro_signed_diff_x);
-		printk("Gyro Offset Diff Y is FAIL!!! %d 0x%x\n", gyro_signed_diff_y,
+		CDBG("Gyro Offset Diff Y is FAIL!!! %d 0x%x\n", gyro_signed_diff_y,
 			gyro_signed_diff_y);
 		ois_stat->is_stable = 0;
 	}
@@ -618,8 +617,8 @@ int32_t fuji_ois_stat(struct msm_sensor_ois_info_t *ois_stat)
 	/* hall_x, hall_y check -10 ~ 10, 10LSB */
 	/* will be fuji adjust hall_x, hall_y */
 	if ((abs(hall_signed_x) > 10) || (abs(hall_signed_y) > 10)) {
-		printk("hall_signed_x FAIL!!! %d 0x%x\n", hall_signed_x, hall_signed_x);		
-		printk("hall_signed_y FAIL!!! %d 0x%x\n", hall_signed_y, hall_signed_y);		
+		CDBG("hall_signed_x FAIL!!! %d 0x%x\n", hall_signed_x, hall_signed_x);		
+		CDBG("hall_signed_y FAIL!!! %d 0x%x\n", hall_signed_y, hall_signed_y);		
 		ois_stat->is_stable = 0;
 	}
 

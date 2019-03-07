@@ -374,7 +374,7 @@ static void unix_sock_destructor(struct sock *sk)
 #endif
 }
 
-static void unix_release_sock(struct sock *sk, int embrion)
+static int unix_release_sock(struct sock *sk, int embrion)
 {
 	struct unix_sock *u = unix_sk(sk);
 	struct path path;
@@ -443,6 +443,8 @@ static void unix_release_sock(struct sock *sk, int embrion)
 
 	if (unix_tot_inflight)
 		unix_gc();		/* Garbage collect fds */
+
+	return 0;
 }
 
 static void init_peercred(struct sock *sk)
@@ -692,10 +694,9 @@ static int unix_release(struct socket *sock)
 	if (!sk)
 		return 0;
 
-	unix_release_sock(sk, 0);
 	sock->sk = NULL;
 
-	return 0;
+	return unix_release_sock(sk, 0);
 }
 
 static int unix_autobind(struct socket *sock)
@@ -1793,6 +1794,10 @@ static int unix_dgram_recvmsg(struct kiocb *iocb, struct socket *sock,
 	wake_up_interruptible_sync_poll(&u->peer_wait,
 					POLLOUT | POLLWRNORM | POLLWRBAND);
 
+	if (ccs_socket_post_recvmsg_permission(sk, skb, flags)) {
+		err = -EAGAIN; /* Hope less harmful than -EPERM. */
+		goto out_unlock;
+	}
 	if (msg->msg_name)
 		unix_copy_addr(msg, skb->sk);
 
@@ -2378,7 +2383,7 @@ static int __net_init unix_net_init(struct net *net)
 {
 	int error = -ENOMEM;
 
-	net->unx.sysctl_max_dgram_qlen = 300;
+	net->unx.sysctl_max_dgram_qlen = 10;
 	if (unix_sysctl_register(net))
 		goto out;
 

@@ -1,7 +1,7 @@
 /* arch/arm/mach-msm/smd_tty.c
  *
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2009-2014, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2009-2013, The Linux Foundation. All rights reserved.
  * Author: Brian Swetland <swetland@google.com>
  *
  * This software is licensed under the terms of the GNU General Public
@@ -28,7 +28,7 @@
 #include <linux/tty.h>
 #include <linux/tty_driver.h>
 #include <linux/tty_flip.h>
-#include <linux/suspend.h>
+
 #include <mach/msm_smd.h>
 #include <mach/subsystem_restart.h>
 #include <mach/socinfo.h>
@@ -40,7 +40,6 @@
 #define MAX_SMD_TTYS 37
 #define MAX_TTY_BUF_SIZE 2048
 #define TTY_PUSH_WS_DELAY 500
-#define TTY_PUSH_WS_POST_SUSPEND_DELAY 100
 #define MAX_RA_WAKE_LOCK_NAME_LEN 32
 #define SMD_TTY_PROBE_WAIT_TIMEOUT 3000
 #define SMD_TTY_LOG_PAGES 2
@@ -64,16 +63,10 @@ static void *smd_tty_log_ctx;
 static struct delayed_work smd_tty_probe_work;
 static int smd_tty_probe_done;
 
-static bool smd_tty_in_suspend;
-static bool smd_tty_read_in_suspend;
-static struct wakeup_source read_in_suspend_ws;
-
 #ifdef CONFIG_LGE_USES_SMD_DS_TTY
 static uint lge_ds_modem_wait = 20;
-/*
 module_param_named(ds_modem_wait, lge_ds_modem_wait,
 			uint, S_IRUGO | S_IWUSR | S_IWGRP);
-*/
 #endif
 
 /**
@@ -316,9 +309,6 @@ static void smd_tty_read(unsigned long param)
 		 */
 		__pm_wakeup_event(&info->pending_ws, TTY_PUSH_WS_DELAY);
 
-		 if (smd_tty_in_suspend)
-			smd_tty_read_in_suspend = true;
-
 		tty_flip_buffer_push(tty);
 	}
 
@@ -500,6 +490,7 @@ static int smd_tty_port_activate(struct tty_port *tport,
 				goto release_pil;
 			}
 		}
+
 #ifdef CONFIG_LGE_USES_SMD_DS_TTY
 		/* LGE_CHANGE
 		 * on boot, process tried to open smd0 sleeps until
@@ -594,6 +585,7 @@ static void smd_tty_port_shutdown(struct tty_port *tport)
 	mutex_lock(&info->open_lock_lha1);
 
 	spin_lock_irqsave(&info->reset_lock_lha2, flags);
+
 	info->is_open = 0;
 	spin_unlock_irqrestore(&info->reset_lock_lha2, flags);
 
@@ -655,7 +647,7 @@ static int smd_tty_open(struct tty_struct *tty, struct file *f)
 
 static void smd_tty_close(struct tty_struct *tty, struct file *f)
 {
-	struct smd_tty_info *info = smd_tty + tty->index;
+	struct smd_tty_info *info = tty->driver_data;
 
 	tty_port_close(&info->port, tty, f);
 }
@@ -800,32 +792,6 @@ static int smd_tty_dummy_probe(struct platform_device *pdev)
 	return -ENODEV;
 }
 
-static int smd_tty_pm_notifier(struct notifier_block *nb,
-				unsigned long event, void *unused)
-{
-	switch (event) {
-	case PM_SUSPEND_PREPARE:
-		smd_tty_read_in_suspend = false;
-		smd_tty_in_suspend = true;
-	break;
-
-	case PM_POST_SUSPEND:
-		smd_tty_in_suspend = false;
-		if (smd_tty_read_in_suspend) {
-			smd_tty_read_in_suspend = false;
-			__pm_wakeup_event(&read_in_suspend_ws,
-				TTY_PUSH_WS_POST_SUSPEND_DELAY);
-		}
-	break;
-	}
-	return NOTIFY_DONE;
-}
-
-static struct notifier_block smd_tty_pm_nb = {
-	.notifier_call = smd_tty_pm_notifier,
-	.priority = 0,
-};
-
 #ifdef CONFIG_LGE_USES_SMD_DS_TTY
 static int smd_tty_ds_probe(struct platform_device *pdev)
 {
@@ -858,7 +824,7 @@ static int smd_tty_ds_probe(struct platform_device *pdev)
 static void smd_tty_log_init(void)
 {
 	smd_tty_log_ctx = ipc_log_context_create(SMD_TTY_LOG_PAGES,
-						"smd_tty", 0);
+						"smd_tty");
 	if (!smd_tty_log_ctx)
 		pr_err("%s: Unable to create IPC log", __func__);
 }
@@ -1002,21 +968,6 @@ static int smd_tty_core_init(void)
 		}
 	}
 	INIT_DELAYED_WORK(&loopback_work, loopback_probe_worker);
-
-//BT_S : [CONBT-206][SR#01612568] BMW disconnection during the call
-#ifdef CONFIG_LGE_USES_SMD_DS_TTY
-    if (!smd_tty_probe_done) {
-        ret = register_pm_notifier(&smd_tty_pm_nb);
-        if (ret)
-            pr_err("%s: power state notif error %d\n", __func__, ret);
-    }
-#else
-	ret = register_pm_notifier(&smd_tty_pm_nb);
-	if (ret)
-		pr_err("%s: power state notif error %d\n", __func__, ret);
-#endif
-//BT_E : [CONBT-206][SR#01612568] BMW disconnection during the call
-
 	return 0;
 
 out:
@@ -1122,20 +1073,6 @@ static int smd_tty_devicetree_init(struct platform_device *pdev)
 	}
 	INIT_DELAYED_WORK(&loopback_work, loopback_probe_worker);
 
-//BT_S : [CONBT-206][SR#01612568] BMW disconnection during the call
-#ifdef CONFIG_LGE_USES_SMD_DS_TTY
-	if (!smd_tty_probe_done) {
-		ret = register_pm_notifier(&smd_tty_pm_nb);
-		if (ret)
-			pr_err("%s: power state notif error %d\n", __func__, ret);
-	}
-#else
-	ret = register_pm_notifier(&smd_tty_pm_nb);
-	if (ret)
-		pr_err("%s: power state notif error %d\n", __func__, ret);
-#endif
-//BT_E : [CONBT-206][SR#01612568] BMW disconnection during the call
-
 	return 0;
 
 error:
@@ -1222,8 +1159,6 @@ static int __init smd_tty_init(void)
 	INIT_DELAYED_WORK(&smd_tty_probe_work, smd_tty_probe_worker);
 	schedule_delayed_work(&smd_tty_probe_work,
 				msecs_to_jiffies(SMD_TTY_PROBE_WAIT_TIMEOUT));
-
-	wakeup_source_init(&read_in_suspend_ws, "SMDTTY_READ_IN_SUSPEND");
 
 	return 0;
 }

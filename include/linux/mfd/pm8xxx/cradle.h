@@ -27,25 +27,29 @@
 #define SMARTCOVER_CAMERA_OPENED	2
 #define SMARTCOVER_CAMERA_VIEW		256
 
-#if defined CONFIG_HALLIC_PEN
-#define SMARTCOVER_PEN_IN			3
-#define SMARTCOVER_PEN_OUT			4
+#if defined CONFIG_MACH_MSM8974_VU3_KR
+#define SMARTCOVER_PEN_IN			1
+#define SMARTCOVER_PEN_OUT			0
+#else
+#define SMARTCOVER_VIEW_CLOSED		3	// G2 doesn't support
+#define SMARTCOVER_VIEW_OPENED		4	// G2 doesn't support
 #endif
 
-/* Carkit support -only VZW*/
+/* Carkit support */
 #ifdef CONFIG_BU52031NVX_CARKIT
 #define	CARKIT_NO_DEV				0	// only VZW
 #define	CARKIT_DESKDOCK				1	// only VZW
 #define CARKIT_DOCKED				2	// only VZW
 #endif
 
-/* define if supports touch wakeup gesture */
-#define HALLIC_TOUCH_IF
+#if !defined(CONFIG_MACH_MSM8974_B1_KR) && !defined(CONFIG_MACH_MSM8974_B1W) && !defined(CONFIG_LGE_Z_TOUCHSCREEN) && !defined(CONFIG_MACH_MSM8974_VU3_KR)
+#define A1_only
+#endif
 
 struct pm8xxx_cradle_platform_data {
 	int hallic_pouch_detect_pin;
 	unsigned int hallic_pouch_irq;
-#if defined CONFIG_HALLIC_PEN
+#if defined CONFIG_MACH_MSM8974_VU3_KR
 	int hallic_pen_detect_pin;
 	unsigned int hallic_pen_irq;
 #else
@@ -69,7 +73,7 @@ void carkit_set_deskdock(int state);
 int carkit_get_deskdock(void);
 #endif
 
-#if defined HALLIC_TOUCH_IF
+#if defined(A1_only)
 int get_smartcover_status(void);
 #endif
 

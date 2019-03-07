@@ -15,7 +15,6 @@
 #include <linux/slab.h>
 #include <linux/stat.h>
 #include <linux/fault-inject.h>
-#include <linux/uaccess.h>
 
 #include <linux/mmc/card.h>
 #include <linux/mmc/host.h>
@@ -138,9 +137,6 @@ static int mmc_ios_show(struct seq_file *s, void *data)
 		break;
 	case MMC_TIMING_MMC_HS200:
 		str = "mmc high-speed SDR200";
-		break;
-	case MMC_TIMING_MMC_HS400:
-		str = "mmc high-speed DDR200";
 		break;
 	default:
 		str = "invalid";
@@ -310,12 +306,10 @@ DEFINE_SIMPLE_ATTRIBUTE(mmc_dbg_card_status_fops, mmc_dbg_card_status_get,
 		NULL, "%08llx\n");
 
 #ifdef CONFIG_MACH_LGE
-	/* LGE_CHANGE
-	 * modify debugfs to show ext_csd register values
-	 * in every single line with an explanation for each value.
-	 * http://www.mail-archive.com/linux-mmc@vger.kernel.org/msg10669.html
-	 * 2014-01-16, B2-BSP-FS@lge.com
-	 */
+/* LGE_CHANGE
+* http://www.mail-archive.com/linux-mmc@vger.kernel.org/msg10669.html
+* 2013-06-28, G2-FS@lge.com
+*/
 static int mmc_ext_csd_read(struct seq_file *s, void *data)
 #else
 #define EXT_CSD_STR_LEN 1025
@@ -325,8 +319,9 @@ static int mmc_ext_csd_open(struct inode *inode, struct file *filp)
 {
 #ifdef CONFIG_MACH_LGE
 	/* LGE_CHANGE
-	 * 2014-01-16, B2-BSP-FS@lge.com
-	 */
+	* http://www.mail-archive.com/linux-mmc@vger.kernel.org/msg10669.html
+	* 2013-06-28, G2-FS@lge.com
+	*/
 	struct mmc_card *card = s->private;
 #else
 	struct mmc_card *card = inode->i_private;
@@ -336,8 +331,9 @@ static int mmc_ext_csd_open(struct inode *inode, struct file *filp)
 	u8 *ext_csd;
 #ifdef CONFIG_MACH_LGE
 	/* LGE_CHANGE
-	 * 2014-01-16, B2-BSP-FS@lge.com
-	 */
+	* http://www.mail-archive.com/linux-mmc@vger.kernel.org/msg10669.html
+	* 2013-06-28, G2-FS@lge.com
+	*/
 	u8 ext_csd_rev;
 	int err;
 	const char *str;
@@ -368,8 +364,9 @@ static int mmc_ext_csd_open(struct inode *inode, struct file *filp)
 		goto out_free;
 #ifdef CONFIG_MACH_LGE
 	/* LGE_CHANGE
-	 * 2014-01-16, B2-BSP-FS@lge.com
-	 */
+	* http://www.mail-archive.com/linux-mmc@vger.kernel.org/msg10669.html
+	* 2013-06-28, G2-FS@lge.com
+	*/
 	ext_csd_rev = ext_csd[192];
 #else
 	for (i = 511; i >= 0; i--)
@@ -384,35 +381,36 @@ static int mmc_ext_csd_open(struct inode *inode, struct file *filp)
 
 #ifdef CONFIG_MACH_LGE
 	/* LGE_CHANGE
-	 * 2014-01-16, B2-BSP-FS@lge.com
+	 * http://www.mail-archive.com/linux-mmc@vger.kernel.org/msg10669.html
+	 2013-06-28, G2-FS@lge.com
 	 */
 
 	switch (ext_csd_rev) {
 	case 7:
-		str = "v5.0";
+		str = "5.0";
 		break;
 	case 6:
-		str = "v4.5, v4.51";
+		str = "4.5";
 		break;
 	case 5:
-		str = "v4.41";
+		str = "4.41";
 		break;
 	case 3:
-		str = "v4.3";
+		str = "4.3";
 		break;
 	case 2:
-		str = "v4.2";
+		str = "4.2";
 		break;
 	case 1:
-		str = "v4.1";
+		str = "4.1";
 		break;
 	case 0:
-		str = "v4.0";
+		str = "4.0";
 		break;
 	default:
 		goto out_free;
 	}
-	seq_printf(s, "Extended CSD rev 1.%d (for MMC %s)\n", ext_csd_rev, str);
+	seq_printf(s, "Extended CSD rev 1.%d (MMC %s)\n", ext_csd_rev, str);
 
 	if (ext_csd_rev < 3)
 		goto out_free; /* No ext_csd */
@@ -450,11 +448,11 @@ static int mmc_ext_csd_open(struct inode *inode, struct file *filp)
 				return -ENOMEM;
 
 			seq_printf(s, "[493] Supported modes, supported_modes: 0x%02x\n", ext_csd[493]);
-			seq_printf(s, "[492] FFU features, FFU_FEATURES: 0x%02x\n", ext_csd[492]);
+			seq_printf(s, "[492] Ffu features, ffu_features: 0x%02x\n", ext_csd[492]);
 			seq_printf(s, "[491] Operation codes timeout, operation_code_timeout: 0x%02x\n", ext_csd[491]);
-			seq_printf(s, "[490:487] FFU Argument, FFU_ARG: 0x%08x\n", (ext_csd[487] << 0) | (ext_csd[488] << 8) | (ext_csd[489] << 16) | (ext_csd[490] << 24));
+			seq_printf(s, "[490:487] Ffu features, ffu_features: 0x%08x\n", (ext_csd[487] << 0) | (ext_csd[488] << 8) | (ext_csd[489] << 16) | (ext_csd[490] << 24));
 			/* B50: reserved [486:306] */
-			seq_printf(s, "[305:302] Number of FW sectors correctly programmed, number_of_fw_sectors_correctly_programmed: 0x%x\n", (ext_csd[302] << 0) | (ext_csd[303] << 8) | (ext_csd[304] << 16) | (ext_csd[305] << 24));
+			seq_printf(s, "[305:302] Number of FW sectors correctly programmed, number_of_fw_sectors_correctly_programmed: 0x%08x\n", (ext_csd[302] << 0) | (ext_csd[303] << 8) | (ext_csd[304] << 16) | (ext_csd[305] << 24));
 
 			output = 0;
 			for (cnt = 301 ; cnt >= 270 ; cnt--)
@@ -597,19 +595,17 @@ static int mmc_ext_csd_open(struct inode *inode, struct file *filp)
 		seq_printf(s, "[159:157] Max Enhanced Area Size, max_enh_size_mult: 0x%06x\n", (ext_csd[159] << 16) | (ext_csd[158] << 8) | ext_csd[157]);
 		seq_printf(s, "[156] Partitions attribute, partitions_attribute: 0x%02x\n", ext_csd[156]);
 		seq_printf(s, "[155] Partitioning Setting, partition_setting_completed: 0x%02x\n", ext_csd[155]);
-		seq_printf(s, "[154:152] General Purpose Partition Size, gp_size_mult_4: 0x%x\n", (ext_csd[154] << 16) | (ext_csd[153] << 8) | ext_csd[152]);
-		seq_printf(s, "[151:149] General Purpose Partition Size, gp_size_mult_3: 0x%x\n", (ext_csd[151] << 16) | (ext_csd[150] << 8) | ext_csd[149]);
-		seq_printf(s, "[148:146] General Purpose Partition Size, gp_size_mult_2: 0x%x\n", (ext_csd[148] << 16) | (ext_csd[147] << 8) | ext_csd[146]);
-		seq_printf(s, "[145:143] General Purpose Partition Size, gp_size_mult_1: 0x%x\n", (ext_csd[145] << 16) | (ext_csd[144] << 8) | ext_csd[143]);
-		seq_printf(s, "[142:140] Enhanced User Data Area Size, enh_size_mult: 0x%x\n", (ext_csd[142] << 16) | (ext_csd[141] << 8) | ext_csd[140]);
-		seq_printf(s, "[139:136] Enhanced User Data Start Address, enh_start_addr: 0x%x\n", (ext_csd[139] << 24) | (ext_csd[138] << 16) | (ext_csd[137] << 8) | ext_csd[136]);
+		seq_printf(s, "[154:152] General Purpose Partition Size, gp_size_mult_4: 0x%06x\n", (ext_csd[154] << 16) | (ext_csd[153] << 8) | ext_csd[152]);
+		seq_printf(s, "[151:149] General Purpose Partition Size, gp_size_mult_3: 0x%06x\n", (ext_csd[151] << 16) | (ext_csd[150] << 8) | ext_csd[149]);
+		seq_printf(s, "[148:146] General Purpose Partition Size, gp_size_mult_2: 0x%06x\n", (ext_csd[148] << 16) | (ext_csd[147] << 8) | ext_csd[146]);
+		seq_printf(s, "[145:143] General Purpose Partition Size, gp_size_mult_1: 0x%06x\n", (ext_csd[145] << 16) | (ext_csd[144] << 8) | ext_csd[143]);
+		seq_printf(s, "[142:140] Enhanced User Data Area Size, enh_size_mult: 0x%06x\n", (ext_csd[142] << 16) | (ext_csd[141] << 8) | ext_csd[140]);
+		seq_printf(s, "[139:136] Enhanced User Data Start Address, enh_start_addr: 0x%06x\n", (ext_csd[139] << 24) | (ext_csd[138] << 16) | (ext_csd[137] << 8) | ext_csd[136]);
 
 		/* B45, A441: reserved [135] [133]  */
 		seq_printf(s, "[134] Bad Block Management mode, sec_bad_blk_mgmnt: 0x%02x\n", ext_csd[134]);
 		/* A441: reserved [133:0] */
 	}
-	if (ext_csd_rev >= 7)
-		seq_printf(s, "[133] Production State Awareness, PRODUCTION_STATE_AWARENESS: 0x%02x\n", ext_csd[133]);
 	/* B45 */
 	if (ext_csd_rev >= 6) {
 		int j;
@@ -629,11 +625,11 @@ static int mmc_ext_csd_open(struct inode *inode, struct file *filp)
 		seq_printf(s, "[60] 1st initialization after disabling sector size emulation, ini_timeout_emu: 0x%02x\n", ext_csd[60]);
 		seq_printf(s, "[59] Class 6 commands control, class_6_ctrl: 0x%02x\n", ext_csd[59]);
 		seq_printf(s, "[58] Number of addressed group to be Released, dyncap_needed: 0x%02x\n", ext_csd[58]);
-		seq_printf(s, "[57:56] Exception events control, exception_events_ctrl: 0x%02x\n",
+		seq_printf(s, "[57:56] Exception events control, exception_events_ctrl: 0x%04x\n",
 				(ext_csd[57] << 8) | ext_csd[56]);
-		seq_printf(s, "[55:54] Exception events status, exception_events_status: 0x%02x\n",
+		seq_printf(s, "[55:54] Exception events status, exception_events_status: 0x%04x\n",
 				(ext_csd[55] << 8) | ext_csd[54]);
-		seq_printf(s, "[53:52] Extended Partitions Attribute, ext_partitions_attribute: 0x%02x\n",
+		seq_printf(s, "[53:52] Extended Partitions Attribute, ext_partitions_attribute: 0x%04x\n",
 				(ext_csd[53] << 8) | ext_csd[52]);
 		for (j = 51; j >= 37; j--)
 			seq_printf(s, "[51:37]Context configuration, context_conf[%d]: 0x%02x\n", j,
@@ -646,21 +642,13 @@ static int mmc_ext_csd_open(struct inode *inode, struct file *filp)
 		/* flush_cache ext_csd[32] not readable */
 		/*Reserved [31:0] */
 	}
-	if (ext_csd_rev >= 7) {
-		seq_printf(s, "[30] Mode Config, MODE_CONFIG: 0x%02x\n", ext_csd[30]);
-		/* mode_operation_codes ext_csd[29] not readable */
-		seq_printf(s, "[26] FFU Status, FFU_STATUS: 0x%02x\n", ext_csd[26]);
-		seq_printf(s, "[25:22] Pre loading Data Size, PRE_LOADING_DATA_SIZE: 0x%08x\n", (ext_csd[22] << 0) | (ext_csd[23] << 8) | (ext_csd[24] << 16) | (ext_csd[25] << 24));
-		seq_printf(s, "[21:18] Max Pre Loading Data Size, MAX_PRE_LOADING_DATA_SIZE: 0x%08x\n", (ext_csd[18] << 0) | (ext_csd[19] << 8) | (ext_csd[20] << 16) | (ext_csd[21] << 24));
-		seq_printf(s, "[17] Product State Awareness Enablement, PRODUCT_STATE_AWARENESS_ENABLEMENT: 0x%02x\n", ext_csd[17]);
-		seq_printf(s, "[16] Secure Removal Type, SECURE_REMOVAL_TYPE: 0x%02x\n", ext_csd[16]);
-	}
 #endif
 out_free:
 #ifndef CONFIG_MACH_LGE
 	/* LGE_CHANGE
-	 * 2014-01-16, B2-BSP-FS@lge.com
-	 */
+	* http://www.mail-archive.com/linux-mmc@vger.kernel.org/msg10669.html
+	* 2013-06-28, G2-FS@lge.com
+	*/
 	kfree(buf);
 #endif
 	kfree(ext_csd);
@@ -668,9 +656,10 @@ out_free:
 }
 
 #ifdef CONFIG_MACH_LGE
-	/* LGE_CHANGE
-	 * 2014-01-16, B2-BSP-FS@lge.com
-	 */
+/* LGE_CHANGE
+* http://www.mail-archive.com/linux-mmc@vger.kernel.org/msg10669.html
+* 2013-06-28, G2-FS@lge.com
+*/
 static int mmc_ext_csd_open(struct inode *inode, struct file *file)
 #else
 static ssize_t mmc_ext_csd_read(struct file *filp, char __user *ubuf,
@@ -679,8 +668,9 @@ static ssize_t mmc_ext_csd_read(struct file *filp, char __user *ubuf,
 {
 #ifdef CONFIG_MACH_LGE
 	/* LGE_CHANGE
-	 * 2014-01-16, B2-BSP-FS@lge.com
-	 */
+	* http://www.mail-archive.com/linux-mmc@vger.kernel.org/msg10669.html
+	* 2013-06-28, G2-FS@lge.com
+	*/
 	return single_open(file, mmc_ext_csd_read, inode->i_private);
 #else
 	char *buf = filp->private_data;
@@ -700,8 +690,9 @@ static const struct file_operations mmc_dbg_ext_csd_fops = {
 	.open		= mmc_ext_csd_open,
 #ifdef CONFIG_MACH_LGE
 	/* LGE_CHANGE
-	 * 2014-01-16, B2-BSP-FS@lge.com
-	 */
+	* http://www.mail-archive.com/linux-mmc@vger.kernel.org/msg10669.html
+	* 2013-06-28, G1-FS@lge.com
+	*/
 	.read		= seq_read,
 	.llseek		= seq_lseek,
 	.release	= single_release,
@@ -732,9 +723,6 @@ static ssize_t mmc_wr_pack_stats_read(struct file *filp, char __user *ubuf,
 	char *temp_buf;
 
 	if (!card)
-		return cnt;
-
-	if (!access_ok(VERIFY_WRITE, ubuf, cnt))
 		return cnt;
 
 	if (!card->wr_pack_stats.print_in_read)
@@ -877,9 +865,6 @@ static ssize_t mmc_wr_pack_stats_write(struct file *filp,
 	if (!card)
 		return cnt;
 
-	if (!access_ok(VERIFY_READ, ubuf, cnt))
-		return cnt;
-
 	sscanf(ubuf, "%d", &value);
 	if (value) {
 		mmc_blk_init_packed_statistics(card);
@@ -917,9 +902,6 @@ static ssize_t mmc_bkops_stats_read(struct file *filp, char __user *ubuf,
 	char *temp_buf;
 
 	if (!card)
-		return cnt;
-
-	if (!access_ok(VERIFY_WRITE, ubuf, cnt))
 		return cnt;
 
 	bkops_stats = &card->bkops_info.bkops_stats;
@@ -986,9 +968,6 @@ static ssize_t mmc_bkops_stats_write(struct file *filp,
 	struct mmc_bkops_stats *bkops_stats;
 
 	if (!card)
-		return cnt;
-
-	if (!access_ok(VERIFY_READ, ubuf, cnt))
 		return cnt;
 
 	bkops_stats = &card->bkops_info.bkops_stats;
